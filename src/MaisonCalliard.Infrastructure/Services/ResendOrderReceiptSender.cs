@@ -64,6 +64,7 @@ internal sealed class ResendOrderReceiptSender
         var response = await client.SendAsync(request, cancellationToken);
         if (response.IsSuccessStatusCode)
         {
+            _logger.LogInformation("Resend accepted email to {Email}. Subject: {Subject}.", toEmail, subject);
             return true;
         }
 

@@ -3,6 +3,7 @@ using MaisonCalliard.Domain.Entities;
 using MaisonCalliard.Domain.Enums;
 using MaisonCalliard.Domain.Repositories;
 using MaisonCalliard.Infrastructure.Options;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
@@ -13,17 +14,20 @@ internal sealed class OrderReceiptService : IOrderReceiptService
     private readonly IOrderRepository _orderRepository;
     private readonly ResendOrderReceiptSender _sender;
     private readonly ReceiptOptions _receiptOptions;
+    private readonly IConfiguration _configuration;
     private readonly ILogger<OrderReceiptService> _logger;
 
     public OrderReceiptService(
         IOrderRepository orderRepository,
         ResendOrderReceiptSender sender,
         IOptions<ReceiptOptions> receiptOptions,
+        IConfiguration configuration,
         ILogger<OrderReceiptService> logger)
     {
         _orderRepository = orderRepository;
         _sender = sender;
         _receiptOptions = receiptOptions.Value;
+        _configuration = configuration;
         _logger = logger;
     }
 
@@ -81,7 +85,8 @@ internal sealed class OrderReceiptService : IOrderReceiptService
 
     private async Task TrySendInternalNotificationAsync(Order order, CancellationToken cancellationToken)
     {
-        if (string.IsNullOrWhiteSpace(_receiptOptions.OrderNotificationEmail))
+        var cafeEmail = GetOrderNotificationEmail();
+        if (string.IsNullOrWhiteSpace(cafeEmail))
         {
             _logger.LogWarning(
                 "ORDER_NOTIFICATION_EMAIL or Receipt:OrderNotificationEmail is not configured; cafe order notification skipped for {OrderId}.",
@@ -93,13 +98,15 @@ internal sealed class OrderReceiptService : IOrderReceiptService
         var subject = InternalOrderNotificationEmailRenderer.RenderSubject(model);
         var html = InternalOrderNotificationEmailRenderer.RenderHtml(model);
 
-        var sent = await _sender.SendAsync(_receiptOptions.OrderNotificationEmail, subject, html, cancellationToken);
+        _logger.LogInformation("Trying to send cafe order notification for {OrderId} to {Email}.", order.Id, cafeEmail);
+
+        var sent = await _sender.SendAsync(cafeEmail, subject, html, cancellationToken);
         if (!sent)
         {
             _logger.LogWarning(
                 "Cafe order notification was not sent for {OrderId} to {Email}.",
                 order.Id,
-                _receiptOptions.OrderNotificationEmail);
+                cafeEmail);
             return;
         }
 
@@ -107,7 +114,20 @@ internal sealed class OrderReceiptService : IOrderReceiptService
         _logger.LogInformation(
             "Cafe order notification sent for {OrderId} to {Email}.",
             order.Id,
-            _receiptOptions.OrderNotificationEmail);
+            cafeEmail);
+    }
+
+    private string GetOrderNotificationEmail()
+    {
+        var candidates = new[]
+        {
+            _configuration["ORDER_NOTIFICATION_EMAIL"],
+            _configuration["OrderNotificationEmail"],
+            _configuration["Receipt:OrderNotificationEmail"],
+            _receiptOptions.OrderNotificationEmail
+        };
+
+        return candidates.FirstOrDefault(value => !string.IsNullOrWhiteSpace(value)) ?? string.Empty;
     }
 
     private static OrderReceiptModel MapToModel(Order order)
