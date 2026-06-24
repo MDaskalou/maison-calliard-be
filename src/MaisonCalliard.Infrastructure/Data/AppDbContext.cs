@@ -17,6 +17,7 @@ internal sealed class AppDbContext : DbContext
     public DbSet<Product> Products => Set<Product>();
     public DbSet<Order> Orders => Set<Order>();
     public DbSet<CartItem> CartItems => Set<CartItem>();
+    public DbSet<ReceiptSequence> ReceiptSequences => Set<ReceiptSequence>();
     public DbSet<AppSettings> Settings => Set<AppSettings>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -30,6 +31,7 @@ internal sealed class AppDbContext : DbContext
         ConfigureMenuItem(modelBuilder, jsonOptions);
         ConfigureProduct(modelBuilder, jsonOptions);
         ConfigureOrder(modelBuilder);
+        ConfigureReceiptSequence(modelBuilder);
         ConfigureSettings(modelBuilder);
     }
 
@@ -107,6 +109,18 @@ internal sealed class AppDbContext : DbContext
     private static void ConfigureOrder(ModelBuilder modelBuilder)
     {
         modelBuilder.Entity<Order>().HasKey(o => o.Id);
+        modelBuilder.Entity<Order>()
+            .HasIndex(o => o.ReceiptNumber)
+            .IsUnique()
+            .HasFilter("\"ReceiptNumber\" IS NOT NULL");
+        modelBuilder.Entity<Order>()
+            .HasIndex(o => o.StripePaymentIntentId)
+            .IsUnique()
+            .HasFilter("\"StripePaymentIntentId\" IS NOT NULL");
+        modelBuilder.Entity<Order>()
+            .HasIndex(o => o.StripeSessionId)
+            .IsUnique()
+            .HasFilter("\"StripeSessionId\" IS NOT NULL");
         modelBuilder.Entity<Order>().Property(o => o.Total).HasPrecision(18, 2);
         modelBuilder.Entity<Order>().Property(o => o.TaxAmount).HasPrecision(18, 2);
         modelBuilder.Entity<Order>()
@@ -117,6 +131,13 @@ internal sealed class AppDbContext : DbContext
 
         modelBuilder.Entity<CartItem>().HasKey(c => c.Id);
         modelBuilder.Entity<CartItem>().Property(c => c.Price).HasPrecision(18, 2);
+        modelBuilder.Entity<CartItem>().Property(c => c.TaxRate).HasPrecision(5, 2);
+    }
+
+    private static void ConfigureReceiptSequence(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<ReceiptSequence>().HasKey(s => s.Year);
+        modelBuilder.Entity<ReceiptSequence>().Property(s => s.Year).ValueGeneratedNever();
     }
 
     private static void ConfigureSettings(ModelBuilder modelBuilder)

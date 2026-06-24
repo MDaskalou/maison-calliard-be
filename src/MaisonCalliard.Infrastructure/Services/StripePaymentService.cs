@@ -117,7 +117,7 @@ internal sealed class StripePaymentService : IPaymentService
         var service = new PaymentIntentService();
         var intent = await service.CreateAsync(options, cancellationToken: cancellationToken);
 
-        order.StripeSessionId = intent.Id;
+        order.StripePaymentIntentId = intent.Id;
         await _orderRepository.UpdateAsync(order, cancellationToken);
 
         return new CreatePaymentIntentResponse
@@ -137,7 +137,13 @@ internal sealed class StripePaymentService : IPaymentService
             var order = await ResolveOrderForCheckoutSessionAsync(session, cancellationToken);
             if (order is not null)
             {
-                await ActivateOrderAfterPaymentAsync(order, cancellationToken);
+                await ActivateOrderAfterPaymentAsync(
+                    order,
+                    DateTime.UtcNow,
+                    "Stripe kortbetalning",
+                    session.PaymentIntentId,
+                    session.Id,
+                    cancellationToken);
             }
 
             return;
@@ -149,7 +155,13 @@ internal sealed class StripePaymentService : IPaymentService
             var order = await ResolveOrderForPaymentIntentAsync(paymentIntent, cancellationToken);
             if (order is not null)
             {
-                await ActivateOrderAfterPaymentAsync(order, cancellationToken);
+                await ActivateOrderAfterPaymentAsync(
+                    order,
+                    DateTime.UtcNow,
+                    "Stripe kortbetalning",
+                    paymentIntent.Id,
+                    null,
+                    cancellationToken);
             }
         }
     }
@@ -166,7 +178,8 @@ internal sealed class StripePaymentService : IPaymentService
         }
         else if (!string.IsNullOrWhiteSpace(request.PaymentIntentId))
         {
-            order = await _orderRepository.GetByStripeSessionIdAsync(request.PaymentIntentId, cancellationToken);
+            order = await _orderRepository.GetByStripePaymentIntentIdAsync(request.PaymentIntentId, cancellationToken)
+                ?? await _orderRepository.GetByStripeSessionIdAsync(request.PaymentIntentId, cancellationToken);
         }
 
         if (order is null)
@@ -174,20 +187,23 @@ internal sealed class StripePaymentService : IPaymentService
             throw new InvalidOperationException("Order was not found for payment confirmation.");
         }
 
-        if (order.Status is OrderStatus.Pending or OrderStatus.Completed or OrderStatus.Paid)
+        if ((order.Status is OrderStatus.Pending or OrderStatus.Completed or OrderStatus.Paid)
+            && !string.IsNullOrWhiteSpace(order.ReceiptNumber)
+            && order.PaidAt is not null
+            && !string.IsNullOrWhiteSpace(order.PaymentMethod))
         {
             await _orderReceiptService.TrySendReceiptAsync(order.Id, cancellationToken);
             return order.Id;
         }
 
-        if (order.Status != OrderStatus.AwaitingPayment)
+        if (order.Status is not (OrderStatus.AwaitingPayment or OrderStatus.Pending or OrderStatus.Paid))
         {
             throw new InvalidOperationException($"Order {order.Id} cannot be confirmed (status: {order.Status}).");
         }
 
         var paymentIntentId = !string.IsNullOrWhiteSpace(request.PaymentIntentId)
             ? request.PaymentIntentId
-            : order.StripeSessionId;
+            : order.StripePaymentIntentId ?? order.StripeSessionId;
 
         if (string.IsNullOrWhiteSpace(paymentIntentId))
         {
@@ -202,16 +218,33 @@ internal sealed class StripePaymentService : IPaymentService
             throw new InvalidOperationException("Payment has not succeeded yet.");
         }
 
-        await ActivateOrderAfterPaymentAsync(order, cancellationToken);
+        await ActivateOrderAfterPaymentAsync(
+            order,
+            DateTime.UtcNow,
+            "Stripe kortbetalning",
+            intent.Id,
+            order.StripeSessionId,
+            cancellationToken);
         return order.Id;
     }
 
-    private async Task ActivateOrderAfterPaymentAsync(DomainOrder order, CancellationToken cancellationToken)
+    private async Task ActivateOrderAfterPaymentAsync(
+        DomainOrder order,
+        DateTime paidAt,
+        string paymentMethod,
+        string? stripePaymentIntentId,
+        string? stripeSessionId,
+        CancellationToken cancellationToken)
     {
-        if (order.Status == OrderStatus.AwaitingPayment)
+        if (order.Status is OrderStatus.AwaitingPayment or OrderStatus.Pending or OrderStatus.Paid)
         {
-            order.Status = OrderStatus.Pending;
-            await _orderRepository.UpdateAsync(order, cancellationToken);
+            await _orderRepository.MarkAsPaidAsync(
+                order,
+                paidAt,
+                paymentMethod,
+                stripePaymentIntentId,
+                stripeSessionId,
+                cancellationToken);
         }
 
         await _orderReceiptService.TrySendReceiptAsync(order.Id, cancellationToken);
@@ -231,7 +264,8 @@ internal sealed class StripePaymentService : IPaymentService
             }
         }
 
-        return await _orderRepository.GetByStripeSessionIdAsync(paymentIntent.Id, cancellationToken);
+        return await _orderRepository.GetByStripePaymentIntentIdAsync(paymentIntent.Id, cancellationToken)
+            ?? await _orderRepository.GetByStripeSessionIdAsync(paymentIntent.Id, cancellationToken);
     }
 
     private static void ValidateCreateSessionRequest(CreatePaymentSessionRequest request)
