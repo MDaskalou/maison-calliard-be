@@ -1,13 +1,14 @@
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json.Serialization;
+using MaisonCalliard.Application.Receipts;
 using MaisonCalliard.Infrastructure.Options;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
 namespace MaisonCalliard.Infrastructure.Services;
 
-internal sealed class ResendOrderReceiptSender
+internal sealed class ResendOrderReceiptSender : IOrderReceiptSender
 {
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly ResendOptions _resendOptions;

@@ -100,9 +100,14 @@ internal static class OrderReceiptEmailRenderer
                           </tr>
                         </table>
                       </td></tr>
-                      <tr><td style="padding-top:24px;font-family:Arial,sans-serif;font-size:11px;opacity:0.7;line-height:1.6;">
-                        <p style="margin:0 0 4px;"><strong>Order-ID:</strong> {WebUtility.HtmlEncode(order.ShortOrderId)}</p>
+                  <tr><td style="padding-top:24px;font-family:Arial,sans-serif;font-size:11px;opacity:0.7;line-height:1.6;">
+                    <p style="margin:0 0 4px;"><strong>Order-ID:</strong> {WebUtility.HtmlEncode(order.ShortOrderId)}</p>
             """);
+
+        if (!string.IsNullOrWhiteSpace(order.ReceiptNumber))
+        {
+            sb.Append($"<p style=\"margin:0 0 4px;\"><strong>Kvittonummer:</strong> {WebUtility.HtmlEncode(order.ReceiptNumber)}</p>");
+        }
 
         if (!string.IsNullOrWhiteSpace(order.Message))
         {

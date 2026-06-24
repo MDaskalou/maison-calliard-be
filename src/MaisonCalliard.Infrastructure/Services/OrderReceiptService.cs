@@ -1,3 +1,4 @@
+using System.Net.Mail;
 using MaisonCalliard.Application.Receipts;
 using MaisonCalliard.Domain.Entities;
 using MaisonCalliard.Domain.Enums;
@@ -12,14 +13,14 @@ namespace MaisonCalliard.Infrastructure.Services;
 internal sealed class OrderReceiptService : IOrderReceiptService
 {
     private readonly IOrderRepository _orderRepository;
-    private readonly ResendOrderReceiptSender _sender;
+    private readonly IOrderReceiptSender _sender;
     private readonly ReceiptOptions _receiptOptions;
     private readonly IConfiguration _configuration;
     private readonly ILogger<OrderReceiptService> _logger;
 
     public OrderReceiptService(
         IOrderRepository orderRepository,
-        ResendOrderReceiptSender sender,
+        IOrderReceiptSender sender,
         IOptions<ReceiptOptions> receiptOptions,
         IConfiguration configuration,
         ILogger<OrderReceiptService> logger)
@@ -83,6 +84,47 @@ internal sealed class OrderReceiptService : IOrderReceiptService
         await _orderRepository.UpdateAsync(order, cancellationToken);
     }
 
+    public async Task ResendReceiptAsync(Guid orderId, CancellationToken cancellationToken = default)
+    {
+        var order = await _orderRepository.GetByIdAsync(orderId, cancellationToken)
+            ?? throw new KeyNotFoundException($"Order {orderId} not found.");
+
+        var email = NormalizeEmail(order.Email);
+        if (email is null)
+        {
+            _logger.LogWarning("Order {OrderId} has no valid email; receipt resend skipped.", orderId);
+            throw new InvalidOperationException("Ordern saknar e-postadress.");
+        }
+
+        var model = MapToModel(order);
+        var subject = OrderReceiptEmailRenderer.RenderSubject(model);
+        var html = OrderReceiptEmailRenderer.RenderHtml(model, _receiptOptions);
+
+        bool sent;
+        try
+        {
+            sent = await _sender.SendAsync(email, subject, html, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Receipt resend failed for order {OrderId} to {Email}.", orderId, email);
+            throw new OrderReceiptDeliveryException("Receipt email provider failed.", ex);
+        }
+
+        if (!sent)
+        {
+            _logger.LogError("Receipt resend was not accepted for order {OrderId} to {Email}.", orderId, email);
+            throw new OrderReceiptDeliveryException("Receipt email provider failed.");
+        }
+
+        var sentAt = DateTime.UtcNow;
+        order.ReceiptSentAt = sentAt;
+        order.CustomerEmailSentAt = sentAt;
+        await _orderRepository.UpdateAsync(order, cancellationToken);
+
+        _logger.LogInformation("Order receipt resent for {OrderId} to {Email}.", orderId, email);
+    }
+
     private async Task TrySendInternalNotificationAsync(Order order, CancellationToken cancellationToken)
     {
         var cafeEmail = GetOrderNotificationEmail();
@@ -128,6 +170,27 @@ internal sealed class OrderReceiptService : IOrderReceiptService
         };
 
         return candidates.FirstOrDefault(value => !string.IsNullOrWhiteSpace(value)) ?? string.Empty;
+    }
+
+    private static string? NormalizeEmail(string? email)
+    {
+        if (string.IsNullOrWhiteSpace(email))
+        {
+            return null;
+        }
+
+        var trimmed = email.Trim();
+        try
+        {
+            var address = new MailAddress(trimmed);
+            return string.Equals(address.Address, trimmed, StringComparison.OrdinalIgnoreCase)
+                ? trimmed
+                : null;
+        }
+        catch (FormatException)
+        {
+            return null;
+        }
     }
 
     private static OrderReceiptModel MapToModel(Order order)

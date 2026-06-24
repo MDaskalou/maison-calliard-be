@@ -1,5 +1,6 @@
 using MaisonCalliard.Application.Orders;
 using MaisonCalliard.Application.Orders.Dtos;
+using MaisonCalliard.Application.Receipts;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -10,10 +11,12 @@ namespace MaisonCalliard.Api.Controllers;
 public sealed class OrdersController : ControllerBase
 {
     private readonly IOrderService _orderService;
+    private readonly ILogger<OrdersController> _logger;
 
-    public OrdersController(IOrderService orderService)
+    public OrdersController(IOrderService orderService, ILogger<OrdersController> logger)
     {
         _orderService = orderService;
+        _logger = logger;
     }
 
     [Authorize(Roles = "admin")]
@@ -63,6 +66,30 @@ public sealed class OrdersController : ControllerBase
         catch (InvalidOperationException ex)
         {
             return BadRequest(new { title = ex.Message });
+        }
+    }
+
+    [Authorize(Roles = "admin")]
+    [HttpPost("{id:guid}/receipt/resend")]
+    public async Task<IActionResult> ResendReceipt(Guid id, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await _orderService.ResendReceiptAsync(id, cancellationToken);
+            return NoContent();
+        }
+        catch (KeyNotFoundException)
+        {
+            return NotFound();
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+        catch (OrderReceiptDeliveryException ex)
+        {
+            _logger.LogError(ex, "Receipt resend failed for order {OrderId}.", id);
+            return StatusCode(StatusCodes.Status502BadGateway, new { message = "Kunde inte skicka kvittot just nu." });
         }
     }
 

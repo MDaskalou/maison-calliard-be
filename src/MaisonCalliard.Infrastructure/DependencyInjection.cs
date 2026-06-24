@@ -55,7 +55,7 @@ public static class DependencyInjection
             client.DefaultRequestHeaders.Accept.ParseAdd("application/json");
         });
 
-        services.AddScoped<ResendOrderReceiptSender>();
+        services.AddScoped<IOrderReceiptSender, ResendOrderReceiptSender>();
         services.AddScoped<IOrderReceiptService, OrderReceiptService>();
         services.AddScoped<IPaymentService, StripePaymentService>();
 

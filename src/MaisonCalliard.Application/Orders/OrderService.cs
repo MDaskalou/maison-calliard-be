@@ -12,6 +12,7 @@ public interface IOrderService
     Task<OrderDto?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default);
     Task<OrderDto> CreateAsync(CreateOrderRequest request, CancellationToken cancellationToken = default);
     Task<OrderDto> UpdateStatusAsync(Guid id, UpdateOrderStatusRequest request, CancellationToken cancellationToken = default);
+    Task ResendReceiptAsync(Guid id, CancellationToken cancellationToken = default);
     Task DeleteAsync(Guid id, CancellationToken cancellationToken = default);
 }
 
@@ -111,6 +112,11 @@ internal sealed class OrderService : IOrderService
             ?? throw new KeyNotFoundException($"Order {id} not found.");
 
         await _orderRepository.DeleteAsync(order, cancellationToken);
+    }
+
+    public async Task ResendReceiptAsync(Guid id, CancellationToken cancellationToken = default)
+    {
+        await _orderReceiptService.ResendReceiptAsync(id, cancellationToken);
     }
 
     private static OrderDto MapToDto(Order order)
