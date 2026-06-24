@@ -40,6 +40,8 @@ internal sealed class OrderReceiptService : IOrderReceiptService
             return;
         }
 
+        _logger.LogInformation("Order {OrderId} status is {Status} at receipt send time.", order.Id, order.Status);
+
         var customerEmailSentAt = order.CustomerEmailSentAt ?? order.ReceiptSentAt;
         if (order.CustomerEmailSentAt is null && order.ReceiptSentAt is not null)
         {
@@ -48,14 +50,12 @@ internal sealed class OrderReceiptService : IOrderReceiptService
 
         if (order.Status is not (OrderStatus.Pending or OrderStatus.Completed or OrderStatus.Paid))
         {
-            _logger.LogDebug(
-                "Order {OrderId} status {Status} not eligible for receipt.",
-                orderId,
+            _logger.LogWarning(
+                "Skipping customer receipt for {OrderId}; unexpected status {Status}. Cafe notification will still be attempted if not already sent.",
+                order.Id,
                 order.Status);
-            return;
         }
-
-        if (customerEmailSentAt is null && string.IsNullOrWhiteSpace(order.Email))
+        else if (customerEmailSentAt is null && string.IsNullOrWhiteSpace(order.Email))
         {
             _logger.LogWarning("Order {OrderId} has no email; receipt skipped.", orderId);
         }
