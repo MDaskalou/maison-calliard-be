@@ -5,6 +5,7 @@ using MaisonCalliard.Domain.Entities;
 using MaisonCalliard.Domain.Enums;
 using MaisonCalliard.Domain.Repositories;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging;
 using Stripe;
 using Stripe.Checkout;
 using DomainOrder = MaisonCalliard.Domain.Entities.Order;
@@ -17,16 +18,19 @@ internal sealed class StripePaymentService : IPaymentService
     private readonly string _webhookSecret;
     private readonly IOrderRepository _orderRepository;
     private readonly IOrderReceiptService _orderReceiptService;
+    private readonly ILogger<StripePaymentService> _logger;
 
     public StripePaymentService(
         IConfiguration configuration,
         IOrderRepository orderRepository,
-        IOrderReceiptService orderReceiptService)
+        IOrderReceiptService orderReceiptService,
+        ILogger<StripePaymentService> logger)
     {
         _stripeSecretKey = configuration["Stripe:SecretKey"] ?? string.Empty;
         _webhookSecret = configuration["Stripe:WebhookSecret"] ?? string.Empty;
         _orderRepository = orderRepository;
         _orderReceiptService = orderReceiptService;
+        _logger = logger;
     }
 
     public async Task<CreatePaymentSessionResponse> CreateSessionAsync(
@@ -35,6 +39,9 @@ internal sealed class StripePaymentService : IPaymentService
     {
         ValidateCreateSessionRequest(request);
         EnsureStripeSecretKeyConfigured();
+
+        var order = await _orderRepository.GetByIdAsync(request.OrderId!.Value, cancellationToken)
+            ?? throw new ArgumentException($"Order {request.OrderId.Value} was not found.");
 
         var lineItems = request.LineItems.Select(item => new SessionLineItemOptions
         {
@@ -64,14 +71,18 @@ internal sealed class StripePaymentService : IPaymentService
         var service = new SessionService();
         var session = await service.CreateAsync(options, cancellationToken: cancellationToken);
 
-        if (request.OrderId.HasValue)
+        try
         {
-            var order = await _orderRepository.GetByIdAsync(request.OrderId.Value, cancellationToken);
-            if (order is not null)
-            {
-                order.StripeSessionId = session.Id;
-                await _orderRepository.UpdateAsync(order, cancellationToken);
-            }
+            order.StripeSessionId = session.Id;
+            await _orderRepository.UpdateAsync(order, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(
+                ex,
+                "Stripe Checkout session {SessionId} was created for order {OrderId}, but StripeSessionId could not be saved. Webhook metadata will still be used as fallback.",
+                session.Id,
+                order.Id);
         }
 
         return new CreatePaymentSessionResponse

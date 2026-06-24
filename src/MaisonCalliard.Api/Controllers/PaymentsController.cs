@@ -13,11 +13,16 @@ public sealed class PaymentsController : ControllerBase
 {
     private readonly IPaymentService _paymentService;
     private readonly IOrderService _orderService;
+    private readonly ILogger<PaymentsController> _logger;
 
-    public PaymentsController(IPaymentService paymentService, IOrderService orderService)
+    public PaymentsController(
+        IPaymentService paymentService,
+        IOrderService orderService,
+        ILogger<PaymentsController> logger)
     {
         _paymentService = paymentService;
         _orderService = orderService;
+        _logger = logger;
     }
 
     [AllowAnonymous]
@@ -35,11 +40,26 @@ public sealed class PaymentsController : ControllerBase
         }
         catch (InvalidOperationException ex)
         {
-            return Problem(title: ex.Message, statusCode: StatusCodes.Status500InternalServerError);
+            _logger.LogError(ex, "Payment session creation failed because backend configuration is invalid.");
+            return StatusCode(StatusCodes.Status500InternalServerError, new { title = ex.Message });
         }
         catch (StripeException ex)
         {
-            return Problem(title: "Stripe Checkout session could not be created.", detail: ex.Message, statusCode: StatusCodes.Status502BadGateway);
+            _logger.LogError(ex, "Stripe Checkout session could not be created.");
+            return StatusCode(StatusCodes.Status502BadGateway, new
+            {
+                title = "Stripe Checkout session could not be created.",
+                detail = ex.Message
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Unexpected error while creating Stripe Checkout session.");
+            return StatusCode(StatusCodes.Status500InternalServerError, new
+            {
+                title = "Unexpected error while creating Stripe Checkout session.",
+                traceId = HttpContext.TraceIdentifier
+            });
         }
     }
 
