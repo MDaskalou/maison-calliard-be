@@ -70,9 +70,14 @@ public sealed class OrdersController : ControllerBase
     }
 
     [Authorize(Roles = "admin")]
-    [HttpPost("{id:guid}/receipt/resend")]
-    public async Task<IActionResult> ResendReceipt(Guid id, CancellationToken cancellationToken)
+    [HttpPost("{orderId}/receipt/resend")]
+    public async Task<IActionResult> ResendReceipt(string orderId, CancellationToken cancellationToken)
     {
+        if (!Guid.TryParse(orderId, out var id))
+        {
+            return NotFound();
+        }
+
         try
         {
             await _orderService.ResendReceiptAsync(id, cancellationToken);

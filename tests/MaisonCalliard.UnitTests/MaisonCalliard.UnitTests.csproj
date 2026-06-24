@@ -24,6 +24,7 @@
     <ProjectReference Include="..\..\src\MaisonCalliard.Domain\MaisonCalliard.Domain.csproj" />
     <ProjectReference Include="..\..\src\MaisonCalliard.Application\MaisonCalliard.Application.csproj" />
     <ProjectReference Include="..\..\src\MaisonCalliard.Infrastructure\MaisonCalliard.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\src\MaisonCalliard.Api\MaisonCalliard.Api.csproj" />
   </ItemGroup>
 
 </Project>
