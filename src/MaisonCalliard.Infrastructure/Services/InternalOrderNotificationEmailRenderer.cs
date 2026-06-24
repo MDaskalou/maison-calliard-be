@@ -12,7 +12,7 @@ internal static class InternalOrderNotificationEmailRenderer
             ? order.ShortOrderId
             : order.ReceiptNumber;
 
-        return $"Ny betald order - {reference}";
+        return $"Ny beställning har kommit in - {reference}";
     }
 
     public static string RenderHtml(OrderReceiptModel order)
@@ -34,7 +34,7 @@ internal static class InternalOrderNotificationEmailRenderer
 
         sb.Append($"""
                       <tr><td>
-                        <h1 style="margin:0 0 6px;font-size:24px;font-weight:700;">Ny betald order</h1>
+                        <h1 style="margin:0 0 6px;font-size:24px;font-weight:700;">Ny beställning har kommit in</h1>
                         <p style="margin:0 0 20px;color:#7b6757;">{Value(order.ReceiptNumber)} · {WebUtility.HtmlEncode(order.OrderId.ToString())}</p>
                       </td></tr>
             """);

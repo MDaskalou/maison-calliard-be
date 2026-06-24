@@ -91,7 +91,9 @@ internal sealed class OrderReceiptService : IOrderReceiptService
 
         if (string.IsNullOrWhiteSpace(_receiptOptions.OrderNotificationEmail))
         {
-            _logger.LogDebug("ORDER_NOTIFICATION_EMAIL is not configured; internal order notification skipped for {OrderId}.", order.Id);
+            _logger.LogWarning(
+                "ORDER_NOTIFICATION_EMAIL or Receipt:OrderNotificationEmail is not configured; cafe order notification skipped for {OrderId}.",
+                order.Id);
             return;
         }
 
@@ -102,12 +104,16 @@ internal sealed class OrderReceiptService : IOrderReceiptService
         var sent = await _sender.SendAsync(_receiptOptions.OrderNotificationEmail, subject, html, cancellationToken);
         if (!sent)
         {
+            _logger.LogWarning(
+                "Cafe order notification was not sent for {OrderId} to {Email}.",
+                order.Id,
+                _receiptOptions.OrderNotificationEmail);
             return;
         }
 
         order.InternalNotificationSentAt = DateTime.UtcNow;
         _logger.LogInformation(
-            "Internal order notification sent for {OrderId} to {Email}.",
+            "Cafe order notification sent for {OrderId} to {Email}.",
             order.Id,
             _receiptOptions.OrderNotificationEmail);
     }

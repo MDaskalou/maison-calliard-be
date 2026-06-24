@@ -1,4 +1,5 @@
 using MaisonCalliard.Application.Orders.Dtos;
+using MaisonCalliard.Application.Receipts;
 using MaisonCalliard.Domain.Entities;
 using MaisonCalliard.Domain.Enums;
 using MaisonCalliard.Domain.Repositories;
@@ -17,10 +18,12 @@ public interface IOrderService
 internal sealed class OrderService : IOrderService
 {
     private readonly IOrderRepository _orderRepository;
+    private readonly IOrderReceiptService _orderReceiptService;
 
-    public OrderService(IOrderRepository orderRepository)
+    public OrderService(IOrderRepository orderRepository, IOrderReceiptService orderReceiptService)
     {
         _orderRepository = orderRepository;
+        _orderReceiptService = orderReceiptService;
     }
 
     public async Task<IReadOnlyList<OrderDto>> GetAllAsync(CancellationToken cancellationToken = default)
@@ -91,6 +94,8 @@ internal sealed class OrderService : IOrderService
                 order.StripePaymentIntentId,
                 order.StripeSessionId,
                 cancellationToken);
+
+            await _orderReceiptService.TrySendReceiptAsync(order.Id, cancellationToken);
 
             return MapToDto(order);
         }
