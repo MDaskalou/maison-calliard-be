@@ -81,14 +81,6 @@ internal sealed class OrderReceiptService : IOrderReceiptService
 
     private async Task TrySendInternalNotificationAsync(Order order, CancellationToken cancellationToken)
     {
-        if (order.PaidAt is null || string.IsNullOrWhiteSpace(order.PaymentMethod))
-        {
-            _logger.LogDebug(
-                "Order {OrderId} has no completed payment data; internal order notification skipped.",
-                order.Id);
-            return;
-        }
-
         if (string.IsNullOrWhiteSpace(_receiptOptions.OrderNotificationEmail))
         {
             _logger.LogWarning(
