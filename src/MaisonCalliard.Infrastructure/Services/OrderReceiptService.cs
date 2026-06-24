@@ -36,9 +36,10 @@ internal sealed class OrderReceiptService : IOrderReceiptService
             return;
         }
 
-        if (order.ReceiptSentAt is not null)
+        var customerEmailSentAt = order.CustomerEmailSentAt ?? order.ReceiptSentAt;
+        if (order.CustomerEmailSentAt is null && order.ReceiptSentAt is not null)
         {
-            return;
+            order.CustomerEmailSentAt = order.ReceiptSentAt;
         }
 
         if (order.Status is not (OrderStatus.Pending or OrderStatus.Completed or OrderStatus.Paid))
@@ -50,25 +51,65 @@ internal sealed class OrderReceiptService : IOrderReceiptService
             return;
         }
 
-        if (string.IsNullOrWhiteSpace(order.Email))
+        if (customerEmailSentAt is null && string.IsNullOrWhiteSpace(order.Email))
         {
             _logger.LogWarning("Order {OrderId} has no email; receipt skipped.", orderId);
+        }
+        else if (customerEmailSentAt is null)
+        {
+            var model = MapToModel(order);
+            var subject = OrderReceiptEmailRenderer.RenderSubject(model);
+            var html = OrderReceiptEmailRenderer.RenderHtml(model, _receiptOptions);
+
+            var sent = await _sender.SendAsync(order.Email, subject, html, cancellationToken);
+            if (sent)
+            {
+                var sentAt = DateTime.UtcNow;
+                order.ReceiptSentAt = sentAt;
+                order.CustomerEmailSentAt = sentAt;
+                _logger.LogInformation("Order receipt sent for {OrderId} to {Email}.", orderId, order.Email);
+            }
+        }
+
+        if (order.InternalNotificationSentAt is null)
+        {
+            await TrySendInternalNotificationAsync(order, cancellationToken);
+        }
+
+        await _orderRepository.UpdateAsync(order, cancellationToken);
+    }
+
+    private async Task TrySendInternalNotificationAsync(Order order, CancellationToken cancellationToken)
+    {
+        if (order.PaidAt is null || string.IsNullOrWhiteSpace(order.PaymentMethod))
+        {
+            _logger.LogDebug(
+                "Order {OrderId} has no completed payment data; internal order notification skipped.",
+                order.Id);
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(_receiptOptions.OrderNotificationEmail))
+        {
+            _logger.LogDebug("ORDER_NOTIFICATION_EMAIL is not configured; internal order notification skipped for {OrderId}.", order.Id);
             return;
         }
 
         var model = MapToModel(order);
-        var subject = OrderReceiptEmailRenderer.RenderSubject(model);
-        var html = OrderReceiptEmailRenderer.RenderHtml(model, _receiptOptions);
+        var subject = InternalOrderNotificationEmailRenderer.RenderSubject(model);
+        var html = InternalOrderNotificationEmailRenderer.RenderHtml(model);
 
-        var sent = await _sender.SendAsync(order.Email, subject, html, cancellationToken);
+        var sent = await _sender.SendAsync(_receiptOptions.OrderNotificationEmail, subject, html, cancellationToken);
         if (!sent)
         {
             return;
         }
 
-        order.ReceiptSentAt = DateTime.UtcNow;
-        await _orderRepository.UpdateAsync(order, cancellationToken);
-        _logger.LogInformation("Order receipt sent for {OrderId} to {Email}.", orderId, order.Email);
+        order.InternalNotificationSentAt = DateTime.UtcNow;
+        _logger.LogInformation(
+            "Internal order notification sent for {OrderId} to {Email}.",
+            order.Id,
+            _receiptOptions.OrderNotificationEmail);
     }
 
     private static OrderReceiptModel MapToModel(Order order)
@@ -78,7 +119,9 @@ internal sealed class OrderReceiptService : IOrderReceiptService
         {
             OrderId = order.Id,
             ShortOrderId = order.Id.ToString("N")[..8].ToUpperInvariant(),
+            ReceiptNumber = order.ReceiptNumber,
             CustomerName = order.CustomerName,
+            CustomerAddress = order.CustomerAddress,
             CustomerEmail = order.Email,
             Phone = order.Phone,
             Message = order.Message,
@@ -87,6 +130,7 @@ internal sealed class OrderReceiptService : IOrderReceiptService
             PickupTime = pickupLocal.ToString("HH:mm"),
             Total = order.Total,
             TaxAmount = order.TaxAmount,
+            PaymentMethod = order.PaymentMethod,
             Lines = order.Items.Select(i => new OrderReceiptLineModel
             {
                 Name = i.Name,

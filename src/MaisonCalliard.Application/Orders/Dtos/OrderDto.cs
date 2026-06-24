@@ -23,6 +23,8 @@ public sealed class OrderDto
     public string? PaymentMethod { get; set; }
     public DateTime? PaidAt { get; set; }
     public bool IsPrinted { get; set; }
+    public DateTime? CustomerEmailSentAt { get; set; }
+    public DateTime? InternalNotificationSentAt { get; set; }
     public SellerDto Seller { get; set; } = new();
     public DateTime CreatedAt { get; set; }
 }

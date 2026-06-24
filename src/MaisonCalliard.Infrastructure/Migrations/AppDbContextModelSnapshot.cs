@@ -158,6 +158,9 @@ namespace MaisonCalliard.Infrastructure.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
+                    b.Property<DateTime?>("CustomerEmailSentAt")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<string>("CustomerName")
                         .IsRequired()
                         .HasColumnType("text");
@@ -168,6 +171,9 @@ namespace MaisonCalliard.Infrastructure.Migrations
 
                     b.Property<bool>("IsPrinted")
                         .HasColumnType("boolean");
+
+                    b.Property<DateTime?>("InternalNotificationSentAt")
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<string>("Location")
                         .IsRequired()

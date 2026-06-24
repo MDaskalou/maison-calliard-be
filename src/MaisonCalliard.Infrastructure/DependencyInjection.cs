@@ -38,7 +38,16 @@ public static class DependencyInjection
         StripeConfiguration.ApiKey = stripeSecretKey;
 
         services.Configure<ResendOptions>(configuration.GetSection(ResendOptions.SectionName));
-        services.Configure<ReceiptOptions>(configuration.GetSection(ReceiptOptions.SectionName));
+        services.Configure<ReceiptOptions>(options =>
+        {
+            configuration.GetSection(ReceiptOptions.SectionName).Bind(options);
+
+            var orderNotificationEmail = configuration["ORDER_NOTIFICATION_EMAIL"];
+            if (!string.IsNullOrWhiteSpace(orderNotificationEmail))
+            {
+                options.OrderNotificationEmail = orderNotificationEmail;
+            }
+        });
 
         services.AddHttpClient("Resend", client =>
         {

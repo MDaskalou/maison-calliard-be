@@ -3,7 +3,7 @@ namespace MaisonCalliard.Application.Receipts;
 public interface IOrderReceiptService
 {
     /// <summary>
-    /// Sends order confirmation email once per order (idempotent via ReceiptSentAt).
+    /// Sends customer and internal paid-order emails once per order.
     /// </summary>
     Task TrySendReceiptAsync(Guid orderId, CancellationToken cancellationToken = default);
 }

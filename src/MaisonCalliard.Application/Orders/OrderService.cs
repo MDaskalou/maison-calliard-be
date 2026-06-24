@@ -143,6 +143,8 @@ internal sealed class OrderService : IOrderService
             PaymentMethod = order.PaymentMethod,
             PaidAt = order.PaidAt,
             IsPrinted = order.IsPrinted,
+            CustomerEmailSentAt = order.CustomerEmailSentAt ?? order.ReceiptSentAt,
+            InternalNotificationSentAt = order.InternalNotificationSentAt,
             Seller = new SellerDto(),
             CreatedAt = order.CreatedAt
         };

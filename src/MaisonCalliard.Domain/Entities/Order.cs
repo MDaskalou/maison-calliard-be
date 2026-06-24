@@ -23,5 +23,7 @@ public sealed class Order
     public DateTime? PaidAt { get; set; }
     public bool IsPrinted { get; set; }
     public DateTime? ReceiptSentAt { get; set; }
+    public DateTime? CustomerEmailSentAt { get; set; }
+    public DateTime? InternalNotificationSentAt { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 }
