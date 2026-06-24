@@ -32,6 +32,7 @@ public sealed class OrdersController : ControllerBase
         return order is null ? NotFound() : Ok(order);
     }
 
+    [AllowAnonymous]
     [HttpPost]
     public async Task<IActionResult> Create([FromBody] CreateOrderRequest request, CancellationToken cancellationToken)
     {

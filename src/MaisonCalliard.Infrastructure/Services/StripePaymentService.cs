@@ -13,6 +13,7 @@ namespace MaisonCalliard.Infrastructure.Services;
 
 internal sealed class StripePaymentService : IPaymentService
 {
+    private readonly string _stripeSecretKey;
     private readonly string _webhookSecret;
     private readonly IOrderRepository _orderRepository;
     private readonly IOrderReceiptService _orderReceiptService;
@@ -22,6 +23,7 @@ internal sealed class StripePaymentService : IPaymentService
         IOrderRepository orderRepository,
         IOrderReceiptService orderReceiptService)
     {
+        _stripeSecretKey = configuration["Stripe:SecretKey"] ?? string.Empty;
         _webhookSecret = configuration["Stripe:WebhookSecret"] ?? string.Empty;
         _orderRepository = orderRepository;
         _orderReceiptService = orderReceiptService;
@@ -31,6 +33,9 @@ internal sealed class StripePaymentService : IPaymentService
         CreatePaymentSessionRequest request,
         CancellationToken cancellationToken = default)
     {
+        ValidateCreateSessionRequest(request);
+        EnsureStripeSecretKeyConfigured();
+
         var lineItems = request.LineItems.Select(item => new SessionLineItemOptions
         {
             PriceData = new SessionLineItemPriceDataOptions
@@ -53,9 +58,7 @@ internal sealed class StripePaymentService : IPaymentService
             SuccessUrl = request.SuccessUrl,
             CancelUrl = request.CancelUrl,
             CustomerEmail = request.CustomerEmail,
-            Metadata = request.OrderId.HasValue
-                ? new Dictionary<string, string> { ["orderId"] = request.OrderId.Value.ToString() }
-                : null
+            Metadata = CreateCheckoutMetadata(request)
         };
 
         var service = new SessionService();
@@ -120,7 +123,7 @@ internal sealed class StripePaymentService : IPaymentService
         if (stripeEvent.Type == EventTypes.CheckoutSessionCompleted)
         {
             var session = (Session)stripeEvent.Data.Object;
-            var order = await _orderRepository.GetByStripeSessionIdAsync(session.Id, cancellationToken);
+            var order = await ResolveOrderForCheckoutSessionAsync(session, cancellationToken);
             if (order is not null)
             {
                 await ActivateOrderAfterPaymentAsync(order, cancellationToken);
@@ -218,5 +221,94 @@ internal sealed class StripePaymentService : IPaymentService
         }
 
         return await _orderRepository.GetByStripeSessionIdAsync(paymentIntent.Id, cancellationToken);
+    }
+
+    private static void ValidateCreateSessionRequest(CreatePaymentSessionRequest request)
+    {
+        if (!request.OrderId.HasValue || request.OrderId.Value == Guid.Empty)
+        {
+            throw new ArgumentException("OrderId is required.");
+        }
+
+        if (string.IsNullOrWhiteSpace(request.SuccessUrl))
+        {
+            throw new ArgumentException("SuccessUrl is required.");
+        }
+
+        if (string.IsNullOrWhiteSpace(request.CancelUrl))
+        {
+            throw new ArgumentException("CancelUrl is required.");
+        }
+
+        if (request.LineItems.Count == 0)
+        {
+            throw new ArgumentException("At least one line item is required.");
+        }
+
+        foreach (var item in request.LineItems)
+        {
+            if (string.IsNullOrWhiteSpace(item.Name))
+            {
+                throw new ArgumentException("Line item name is required.");
+            }
+
+            if (item.UnitAmountOre < 1)
+            {
+                throw new ArgumentException("Line item unit amount must be greater than zero.");
+            }
+
+            if (item.Quantity < 1)
+            {
+                throw new ArgumentException("Line item quantity must be greater than zero.");
+            }
+        }
+    }
+
+    private static Dictionary<string, string> CreateCheckoutMetadata(CreatePaymentSessionRequest request)
+    {
+        var metadata = new Dictionary<string, string>
+        {
+            ["orderId"] = request.OrderId!.Value.ToString()
+        };
+
+        if (!string.IsNullOrWhiteSpace(request.CustomerName))
+        {
+            metadata["customerName"] = request.CustomerName;
+        }
+
+        return metadata;
+    }
+
+    private void EnsureStripeSecretKeyConfigured()
+    {
+        if (string.IsNullOrWhiteSpace(_stripeSecretKey))
+        {
+            throw new InvalidOperationException("Stripe:SecretKey is not configured.");
+        }
+    }
+
+    private async Task<DomainOrder?> ResolveOrderForCheckoutSessionAsync(
+        Session session,
+        CancellationToken cancellationToken)
+    {
+        var bySessionId = await _orderRepository.GetByStripeSessionIdAsync(session.Id, cancellationToken);
+        if (bySessionId is not null)
+        {
+            return bySessionId;
+        }
+
+        if (session.Metadata.TryGetValue("orderId", out var orderIdStr)
+            && Guid.TryParse(orderIdStr, out var orderId))
+        {
+            var byOrderId = await _orderRepository.GetByIdAsync(orderId, cancellationToken);
+            if (byOrderId is not null)
+            {
+                byOrderId.StripeSessionId = session.Id;
+                await _orderRepository.UpdateAsync(byOrderId, cancellationToken);
+                return byOrderId;
+            }
+        }
+
+        return null;
     }
 }

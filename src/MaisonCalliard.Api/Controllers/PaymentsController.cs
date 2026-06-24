@@ -1,7 +1,9 @@
 using MaisonCalliard.Application.Orders;
 using MaisonCalliard.Application.Payments;
 using MaisonCalliard.Application.Payments.Dtos;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Stripe;
 
 namespace MaisonCalliard.Api.Controllers;
 
@@ -18,13 +20,30 @@ public sealed class PaymentsController : ControllerBase
         _orderService = orderService;
     }
 
+    [AllowAnonymous]
     [HttpPost("create-session")]
     public async Task<IActionResult> CreateSession([FromBody] CreatePaymentSessionRequest request, CancellationToken cancellationToken)
     {
-        var result = await _paymentService.CreateSessionAsync(request, cancellationToken);
-        return Ok(result);
+        try
+        {
+            var result = await _paymentService.CreateSessionAsync(request, cancellationToken);
+            return Ok(result);
+        }
+        catch (ArgumentException ex)
+        {
+            return BadRequest(new { title = ex.Message });
+        }
+        catch (InvalidOperationException ex)
+        {
+            return Problem(title: ex.Message, statusCode: StatusCodes.Status500InternalServerError);
+        }
+        catch (StripeException ex)
+        {
+            return Problem(title: "Stripe Checkout session could not be created.", detail: ex.Message, statusCode: StatusCodes.Status502BadGateway);
+        }
     }
 
+    [AllowAnonymous]
     [HttpPost("create-intent")]
     public async Task<IActionResult> CreateIntent([FromBody] CreatePaymentIntentRequest request, CancellationToken cancellationToken)
     {
@@ -39,6 +58,7 @@ public sealed class PaymentsController : ControllerBase
         }
     }
 
+    [AllowAnonymous]
     [HttpPost("confirm-intent")]
     public async Task<IActionResult> ConfirmIntent([FromBody] ConfirmPaymentIntentRequest request, CancellationToken cancellationToken)
     {
@@ -59,6 +79,7 @@ public sealed class PaymentsController : ControllerBase
         }
     }
 
+    [AllowAnonymous]
     [HttpPost("webhook")]
     public async Task<IActionResult> Webhook(CancellationToken cancellationToken)
     {
