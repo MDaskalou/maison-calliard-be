@@ -13,7 +13,7 @@
 }
 ```
 
-4. Med `"Enabled": false` loggas mailet i konsolen istället för att skickas.
+4. Med `"Enabled": false` loggas mailet i konsolen istället för att skickas och ordern markeras inte som mailad.
 
 ## Stripe webhooks lokalt
 

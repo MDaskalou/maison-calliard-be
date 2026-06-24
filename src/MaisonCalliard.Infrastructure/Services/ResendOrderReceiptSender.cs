@@ -31,11 +31,11 @@ internal sealed class ResendOrderReceiptSender
         if (!_resendOptions.Enabled)
         {
             _logger.LogInformation(
-                "Resend disabled. Would send receipt to {Email}. Subject: {Subject}. HTML length: {Length}",
+                "Resend disabled. Receipt not sent to {Email}. Subject: {Subject}. HTML length: {Length}",
                 toEmail,
                 subject,
                 html.Length);
-            return true;
+            return false;
         }
 
         if (string.IsNullOrWhiteSpace(_resendOptions.ApiKey))
