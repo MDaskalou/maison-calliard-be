@@ -1,0 +1,65 @@
+name: Build and deploy ASP.NET Core app to Azure Web App - maison-calliard-be
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+env:
+  AZURE_WEBAPP_NAME: maison-calliard-be
+  AZURE_WEBAPP_PACKAGE_PATH: publish
+  DOTNET_VERSION: 9.x
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Restore
+        run: dotnet restore src/MaisonCalliard.Api/MaisonCalliard.Api.csproj
+
+      - name: Build
+        run: dotnet build src/MaisonCalliard.Api/MaisonCalliard.Api.csproj --configuration Release --no-restore
+
+      - name: Test
+        run: dotnet test tests/MaisonCalliard.UnitTests/MaisonCalliard.UnitTests.csproj --configuration Release
+
+      - name: Publish
+        run: dotnet publish src/MaisonCalliard.Api/MaisonCalliard.Api.csproj --configuration Release --no-build --output "${{ env.AZURE_WEBAPP_PACKAGE_PATH }}"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: dotnet-app
+          path: ${{ env.AZURE_WEBAPP_PACKAGE_PATH }}
+
+  deploy:
+    runs-on: windows-latest
+    needs: build
+    environment:
+      name: Production
+      url: ${{ steps.deploy-to-webapp.outputs.webapp-url }}
+
+    steps:
+      - name: Download artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: dotnet-app
+          path: ${{ env.AZURE_WEBAPP_PACKAGE_PATH }}
+
+      - name: Deploy to Azure Web App
+        id: deploy-to-webapp
+        uses: azure/webapps-deploy@v3
+        with:
+          app-name: ${{ env.AZURE_WEBAPP_NAME }}
+          package: ${{ env.AZURE_WEBAPP_PACKAGE_PATH }}
+          publish-profile: ${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE }}

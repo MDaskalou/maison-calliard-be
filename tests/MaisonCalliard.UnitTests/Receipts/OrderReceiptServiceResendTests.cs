@@ -29,6 +29,52 @@ public sealed class OrderReceiptServiceResendTests
     }
 
     [Fact]
+    public async Task TrySendReceiptAsync_WhenCafeNotificationEmailIsConfigured_SendsCustomerAndCafeEmails()
+    {
+        var order = CreateOrder();
+        var cafeEmail = order.Email;
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Receipt:OrderNotificationEmail"] = cafeEmail
+            })
+            .Build();
+        var sut = new OrderReceiptService(
+            _orderRepositoryMock.Object,
+            _senderMock.Object,
+            Options.Create(new ReceiptOptions { CompanyName = "Maison Caillard" }),
+            configuration,
+            NullLogger<OrderReceiptService>.Instance);
+
+        _orderRepositoryMock
+            .Setup(r => r.GetByIdAsync(order.Id, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(order);
+        _senderMock
+            .Setup(s => s.SendAsync(cafeEmail, It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+
+        await sut.TrySendReceiptAsync(order.Id);
+
+        order.CustomerEmailSentAt.Should().NotBeNull();
+        order.InternalNotificationSentAt.Should().NotBeNull();
+        _senderMock.Verify(
+            s => s.SendAsync(
+                cafeEmail,
+                It.Is<string>(subject => subject.Contains("Orderbekr")),
+                It.Is<string>(html => html.Contains("Kundkopia") && html.Contains("Chokladtarta")),
+                It.IsAny<CancellationToken>()),
+            Times.Once);
+        _senderMock.Verify(
+            s => s.SendAsync(
+                cafeEmail,
+                It.Is<string>(subject => subject.Contains("Ny best")),
+                It.Is<string>(html => html.Contains("Anna Test") && html.Contains("anna@example.com")),
+                It.IsAny<CancellationToken>()),
+            Times.Once);
+        _orderRepositoryMock.Verify(r => r.UpdateAsync(order, It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
     public async Task ResendReceiptAsync_WhenOrderExists_SendsReceiptAndDoesNotChangeStatus()
     {
         var order = CreateOrder();
