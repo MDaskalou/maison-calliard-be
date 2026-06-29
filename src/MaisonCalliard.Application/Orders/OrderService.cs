@@ -19,11 +19,16 @@ public interface IOrderService
 internal sealed class OrderService : IOrderService
 {
     private readonly IOrderRepository _orderRepository;
+    private readonly IProductRepository _productRepository;
     private readonly IOrderReceiptService _orderReceiptService;
 
-    public OrderService(IOrderRepository orderRepository, IOrderReceiptService orderReceiptService)
+    public OrderService(
+        IOrderRepository orderRepository,
+        IProductRepository productRepository,
+        IOrderReceiptService orderReceiptService)
     {
         _orderRepository = orderRepository;
+        _productRepository = productRepository;
         _orderReceiptService = orderReceiptService;
     }
 
@@ -43,21 +48,16 @@ internal sealed class OrderService : IOrderService
     {
         ValidateCreateOrderRequest(request);
 
+        var orderItems = new List<CartItem>();
+        foreach (var item in request.Items)
+        {
+            orderItems.Add(await CreateVerifiedOrderItemAsync(item, cancellationToken));
+        }
+
         var order = new Order
         {
             Id = Guid.NewGuid(),
-            Items = request.Items.Select(i => new CartItem
-            {
-                Id = Guid.NewGuid(),
-                CartId = i.CartId,
-                ProductId = i.ProductId,
-                Name = i.Name,
-                ImageUrl = i.ImageUrl,
-                OptionLabel = i.OptionLabel,
-                Price = GetUnitPrice(i),
-                Quantity = i.Quantity,
-                TaxRate = i.TaxRate
-            }).ToList(),
+            Items = orderItems,
             PickupDateTime = request.PickupDateTime,
             Location = request.Location,
             CustomerName = request.CustomerName,
@@ -175,26 +175,58 @@ internal sealed class OrderService : IOrderService
 
         foreach (var item in request.Items)
         {
-            if (GetUnitPrice(item) < 0)
+            if (string.IsNullOrWhiteSpace(item.ProductId) || !Guid.TryParse(item.ProductId, out _))
             {
-                throw new ArgumentException("Order item unit price cannot be negative.");
+                throw new ArgumentException("Order item ProductId must be a valid product id.");
             }
 
             if (item.Quantity < 1)
             {
                 throw new ArgumentException("Order item quantity must be greater than zero.");
             }
-
-            if (item.TaxRate <= 0 || item.TaxRate > 100)
-            {
-                throw new ArgumentException("Order item TaxRate must be greater than zero and no more than 100.");
-            }
         }
     }
 
-    private static decimal GetUnitPrice(CartItemDto item)
+    private async Task<CartItem> CreateVerifiedOrderItemAsync(CartItemDto item, CancellationToken cancellationToken)
     {
-        return item.UnitPrice > 0 ? item.UnitPrice : item.Price;
+        var productId = Guid.Parse(item.ProductId);
+        var product = await _productRepository.GetByIdAsync(productId, cancellationToken)
+            ?? throw new ArgumentException($"Product {item.ProductId} was not found.");
+
+        if (!product.IsAvailable)
+        {
+            throw new ArgumentException($"Product {item.ProductId} is not available.");
+        }
+
+        var option = product.PriceOptions.FirstOrDefault(priceOption =>
+            string.Equals(priceOption.Label, item.OptionLabel, StringComparison.Ordinal));
+
+        if (option is null)
+        {
+            throw new ArgumentException($"Price option '{item.OptionLabel}' is not available for product {item.ProductId}.");
+        }
+
+        var taxRate = product.TaxRate.HasValue
+            ? Convert.ToDecimal(product.TaxRate.Value)
+            : 12m;
+
+        if (taxRate <= 0 || taxRate > 100)
+        {
+            throw new ArgumentException($"Product {item.ProductId} has an invalid tax rate.");
+        }
+
+        return new CartItem
+        {
+            Id = Guid.NewGuid(),
+            CartId = item.CartId,
+            ProductId = product.Id.ToString(),
+            Name = string.IsNullOrWhiteSpace(product.Name.Se) ? product.Name.En : product.Name.Se,
+            ImageUrl = product.ImageUrl,
+            OptionLabel = option.Label,
+            Price = option.Price,
+            Quantity = item.Quantity,
+            TaxRate = taxRate
+        };
     }
 
     private static decimal CalculateTotal(IEnumerable<CartItem> items)

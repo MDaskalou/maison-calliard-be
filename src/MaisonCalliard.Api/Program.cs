@@ -5,15 +5,28 @@ using System.Text.Json.Serialization;
 using MaisonCalliard.Application;
 using MaisonCalliard.Infrastructure;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Http.Features;
 using Microsoft.IdentityModel.Tokens;
 
 var builder = WebApplication.CreateBuilder(args);
+
+const long DefaultMaxImageUploadBytes = 10 * 1024 * 1024;
+const int MaxInMemoryUploadBufferBytes = 8 * 1024 * 1024;
 
 builder.Services.AddControllers()
     .AddJsonOptions(options =>
     {
         options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter(JsonNamingPolicy.CamelCase));
     });
+
+builder.Services.Configure<FormOptions>(options =>
+{
+    var maxImageUploadBytes = builder.Configuration.GetValue<long?>("Uploads:MaxImageBytes") ?? DefaultMaxImageUploadBytes;
+
+    options.MultipartBodyLengthLimit = maxImageUploadBytes;
+    options.MemoryBufferThreshold = (int)Math.Min(maxImageUploadBytes, MaxInMemoryUploadBufferBytes);
+});
+
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 

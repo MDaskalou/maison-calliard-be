@@ -114,9 +114,16 @@ internal static class OrderReceiptEmailRenderer
             sb.Append($"<p style=\"margin:8px 0 0;\"><strong>Meddelande:</strong> {WebUtility.HtmlEncode(order.Message)}</p>");
         }
 
+        var legalDetails = GetLegalDetails(order.Location, options);
+
         sb.Append($"""
                         <p style="margin:16px 0 0;">Frågor? {WebUtility.HtmlEncode(options.SupportEmail)} · {WebUtility.HtmlEncode(options.Phone)}</p>
-                        <p style="margin:8px 0 0;font-size:10px;">Mölndal: {WebUtility.HtmlEncode(options.MolndalAddress)}<br/>Järntorget: {WebUtility.HtmlEncode(options.JarntorgetAddress)}</p>
+                        <p style="margin:12px 0 0;font-size:10px;">
+                          {WebUtility.HtmlEncode(legalDetails.LegalName)}<br/>
+                          Org Nr {WebUtility.HtmlEncode(legalDetails.OrganizationNumber)}<br/>
+                          {WebUtility.HtmlEncode(legalDetails.Address)}<br/>
+                          Moms: {WebUtility.HtmlEncode(legalDetails.VatNumber)}
+                        </p>
                       </td></tr>
                     </table>
                   </td>
@@ -128,4 +135,37 @@ internal static class OrderReceiptEmailRenderer
 
         return sb.ToString();
     }
+
+    private static ReceiptLegalDetails GetLegalDetails(string location, ReceiptOptions options)
+    {
+        if (IsJarntorget(location))
+        {
+            return new ReceiptLegalDetails(
+                options.JarntorgetLegalName,
+                options.JarntorgetOrganizationNumber,
+                options.JarntorgetAddress,
+                options.JarntorgetVatNumber);
+        }
+
+        return new ReceiptLegalDetails(
+            options.MolndalLegalName,
+            options.MolndalOrganizationNumber,
+            options.MolndalAddress,
+            options.MolndalVatNumber);
+    }
+
+    private static bool IsJarntorget(string location)
+    {
+        var normalized = location
+            .Replace("ä", "a", StringComparison.OrdinalIgnoreCase)
+            .Replace("ö", "o", StringComparison.OrdinalIgnoreCase);
+
+        return normalized.Contains("jarntorget", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private sealed record ReceiptLegalDetails(
+        string LegalName,
+        string OrganizationNumber,
+        string Address,
+        string VatNumber);
 }

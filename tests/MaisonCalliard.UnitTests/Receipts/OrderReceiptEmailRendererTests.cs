@@ -55,6 +55,48 @@ public sealed class OrderReceiptEmailRendererTests
     }
 
     [Fact]
+    public void RenderHtml_includes_molndal_legal_details_for_molndal_orders()
+    {
+        var model = new OrderReceiptModel
+        {
+            ShortOrderId = "AABBCCDD",
+            CustomerName = "Anna Test",
+            Location = "Maison Caillard, Molndal",
+            PickupDate = "2026-05-25",
+            PickupTime = "11:00",
+            Total = 450m
+        };
+
+        var html = OrderReceiptEmailRenderer.RenderHtml(model, new ReceiptOptions());
+
+        Assert.Contains("Maison Caillard AB", html);
+        Assert.Contains("5591891295", html);
+        Assert.Contains("SE559189129501", html);
+        Assert.DoesNotContain("Caf", html);
+    }
+
+    [Fact]
+    public void RenderHtml_includes_jarntorget_legal_details_for_jarntorget_orders()
+    {
+        var model = new OrderReceiptModel
+        {
+            ShortOrderId = "AABBCCDD",
+            CustomerName = "Anna Test",
+            Location = "Cafe Caillard, Jarntorget",
+            PickupDate = "2026-05-25",
+            PickupTime = "11:00",
+            Total = 450m
+        };
+
+        var html = OrderReceiptEmailRenderer.RenderHtml(model, new ReceiptOptions());
+
+        Assert.Contains("Caf", html);
+        Assert.Contains("559570-1623", html);
+        Assert.Contains("SE556878500901", html);
+        Assert.DoesNotContain("5591891295", html);
+    }
+
+    [Fact]
     public void RenderInternalHtml_includes_customer_pickup_payment_and_receipt_data()
     {
         var model = new OrderReceiptModel

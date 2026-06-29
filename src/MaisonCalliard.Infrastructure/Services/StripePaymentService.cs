@@ -16,6 +16,7 @@ internal sealed class StripePaymentService : IPaymentService
 {
     private readonly string _stripeSecretKey;
     private readonly string _webhookSecret;
+    private readonly IReadOnlyDictionary<string, StripeLocationSettings> _locationSettings;
     private readonly IOrderRepository _orderRepository;
     private readonly IOrderReceiptService _orderReceiptService;
     private readonly ILogger<StripePaymentService> _logger;
@@ -28,6 +29,7 @@ internal sealed class StripePaymentService : IPaymentService
     {
         _stripeSecretKey = configuration["Stripe:SecretKey"] ?? string.Empty;
         _webhookSecret = configuration["Stripe:WebhookSecret"] ?? string.Empty;
+        _locationSettings = LoadLocationSettings(configuration);
         _orderRepository = orderRepository;
         _orderReceiptService = orderReceiptService;
         _logger = logger;
@@ -43,12 +45,30 @@ internal sealed class StripePaymentService : IPaymentService
         var order = await _orderRepository.GetByIdAsync(request.OrderId!.Value, cancellationToken)
             ?? throw new ArgumentException($"Order {request.OrderId.Value} was not found.");
 
-        var lineItems = request.LineItems.Select(item => new SessionLineItemOptions
+        if (order.Status == OrderStatus.Paid)
+        {
+            throw new InvalidOperationException($"Order {order.Id} is already paid.");
+        }
+
+        if (!string.IsNullOrWhiteSpace(order.StripeSessionId))
+        {
+            var existingSession = await TryGetOpenCheckoutSessionAsync(order, cancellationToken);
+            if (existingSession is not null)
+            {
+                return new CreatePaymentSessionResponse
+                {
+                    SessionId = existingSession.Id,
+                    Url = existingSession.Url
+                };
+            }
+        }
+
+        var lineItems = order.Items.Select(item => new SessionLineItemOptions
         {
             PriceData = new SessionLineItemPriceDataOptions
             {
                 Currency = "sek",
-                UnitAmount = item.UnitAmountOre,
+                UnitAmount = ToOre(item.Price),
                 ProductData = new SessionLineItemPriceDataProductDataOptions
                 {
                     Name = item.Name
@@ -65,11 +85,15 @@ internal sealed class StripePaymentService : IPaymentService
             SuccessUrl = request.SuccessUrl,
             CancelUrl = request.CancelUrl,
             CustomerEmail = request.CustomerEmail,
+            ClientReferenceId = order.Id.ToString(),
             Metadata = CreateCheckoutMetadata(request)
         };
 
         var service = new SessionService();
-        var session = await service.CreateAsync(options, cancellationToken: cancellationToken);
+        var session = await service.CreateAsync(
+            options,
+            requestOptions: CreateStripeRequestOptions(order),
+            cancellationToken: cancellationToken);
 
         try
         {
@@ -99,7 +123,25 @@ internal sealed class StripePaymentService : IPaymentService
         var order = await _orderRepository.GetByIdAsync(request.OrderId, cancellationToken)
             ?? throw new InvalidOperationException($"Order {request.OrderId} was not found.");
 
-        var amountOre = (long)Math.Round(order.Total * 100m, MidpointRounding.AwayFromZero);
+        if (order.Status == OrderStatus.Paid)
+        {
+            throw new InvalidOperationException($"Order {order.Id} is already paid.");
+        }
+
+        if (!string.IsNullOrWhiteSpace(order.StripePaymentIntentId))
+        {
+            var existingIntent = await TryGetReusablePaymentIntentAsync(order, cancellationToken);
+            if (existingIntent is not null)
+            {
+                return new CreatePaymentIntentResponse
+                {
+                    ClientSecret = existingIntent.ClientSecret,
+                    PaymentIntentId = existingIntent.Id
+                };
+            }
+        }
+
+        var amountOre = GetExpectedAmountOre(order);
         if (amountOre < 1)
         {
             throw new InvalidOperationException("Order total must be greater than zero.");
@@ -115,7 +157,10 @@ internal sealed class StripePaymentService : IPaymentService
         };
 
         var service = new PaymentIntentService();
-        var intent = await service.CreateAsync(options, cancellationToken: cancellationToken);
+        var intent = await service.CreateAsync(
+            options,
+            requestOptions: CreateStripeRequestOptions(order),
+            cancellationToken: cancellationToken);
 
         order.StripePaymentIntentId = intent.Id;
         await _orderRepository.UpdateAsync(order, cancellationToken);
@@ -129,7 +174,7 @@ internal sealed class StripePaymentService : IPaymentService
 
     public async Task HandleWebhookAsync(string payload, string stripeSignature, CancellationToken cancellationToken = default)
     {
-        var stripeEvent = EventUtility.ConstructEvent(payload, stripeSignature, _webhookSecret);
+        var stripeEvent = ConstructStripeEvent(payload, stripeSignature);
 
         if (stripeEvent.Type == EventTypes.CheckoutSessionCompleted)
         {
@@ -137,6 +182,8 @@ internal sealed class StripePaymentService : IPaymentService
             var order = await ResolveOrderForCheckoutSessionAsync(session, cancellationToken);
             if (order is not null)
             {
+                ValidateCheckoutSessionMatchesOrder(session, order);
+
                 await ActivateOrderAfterPaymentAsync(
                     order,
                     DateTime.UtcNow,
@@ -155,6 +202,8 @@ internal sealed class StripePaymentService : IPaymentService
             var order = await ResolveOrderForPaymentIntentAsync(paymentIntent, cancellationToken);
             if (order is not null)
             {
+                ValidatePaymentIntentMatchesOrder(paymentIntent, order);
+
                 await ActivateOrderAfterPaymentAsync(
                     order,
                     DateTime.UtcNow,
@@ -163,6 +212,13 @@ internal sealed class StripePaymentService : IPaymentService
                     null,
                     cancellationToken);
             }
+
+            return;
+        }
+
+        if (stripeEvent.Type is EventTypes.PaymentIntentPaymentFailed or EventTypes.CheckoutSessionExpired)
+        {
+            _logger.LogInformation("Stripe event {EventType} received; no paid state change performed.", stripeEvent.Type);
         }
     }
 
@@ -201,9 +257,46 @@ internal sealed class StripePaymentService : IPaymentService
             throw new InvalidOperationException($"Order {order.Id} cannot be confirmed (status: {order.Status}).");
         }
 
+        if (!string.IsNullOrWhiteSpace(request.PaymentIntentId)
+            && !request.PaymentIntentId.StartsWith("cs_", StringComparison.Ordinal)
+            && !string.IsNullOrWhiteSpace(order.StripePaymentIntentId)
+            && !string.Equals(request.PaymentIntentId, order.StripePaymentIntentId, StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException("Payment intent does not match the order.");
+        }
+
+        if (!string.IsNullOrWhiteSpace(request.PaymentIntentId)
+            && !string.IsNullOrWhiteSpace(order.StripeSessionId)
+            && request.PaymentIntentId.StartsWith("cs_", StringComparison.Ordinal)
+            && !string.Equals(request.PaymentIntentId, order.StripeSessionId, StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException("Checkout session does not match the order.");
+        }
+
+        if (!string.IsNullOrWhiteSpace(request.PaymentIntentId)
+            && request.PaymentIntentId.StartsWith("cs_", StringComparison.Ordinal))
+        {
+            var sessionService = new SessionService();
+            var session = await sessionService.GetAsync(
+                request.PaymentIntentId,
+                requestOptions: CreateStripeRequestOptions(order),
+                cancellationToken: cancellationToken);
+            ValidateCheckoutSessionMatchesOrder(session, order);
+
+            await ActivateOrderAfterPaymentAsync(
+                order,
+                DateTime.UtcNow,
+                "Stripe kortbetalning",
+                session.PaymentIntentId,
+                session.Id,
+                cancellationToken);
+
+            return order.Id;
+        }
+
         var paymentIntentId = !string.IsNullOrWhiteSpace(request.PaymentIntentId)
             ? request.PaymentIntentId
-            : order.StripePaymentIntentId ?? order.StripeSessionId;
+            : order.StripePaymentIntentId;
 
         if (string.IsNullOrWhiteSpace(paymentIntentId))
         {
@@ -211,12 +304,17 @@ internal sealed class StripePaymentService : IPaymentService
         }
 
         var intentService = new PaymentIntentService();
-        var intent = await intentService.GetAsync(paymentIntentId, cancellationToken: cancellationToken);
+        var intent = await intentService.GetAsync(
+            paymentIntentId,
+            requestOptions: CreateStripeRequestOptions(order),
+            cancellationToken: cancellationToken);
 
         if (!string.Equals(intent.Status, "succeeded", StringComparison.OrdinalIgnoreCase))
         {
             throw new InvalidOperationException("Payment has not succeeded yet.");
         }
+
+        ValidatePaymentIntentMatchesOrder(intent, order);
 
         await ActivateOrderAfterPaymentAsync(
             order,
@@ -285,28 +383,6 @@ internal sealed class StripePaymentService : IPaymentService
             throw new ArgumentException("CancelUrl is required.");
         }
 
-        if (request.LineItems.Count == 0)
-        {
-            throw new ArgumentException("At least one line item is required.");
-        }
-
-        foreach (var item in request.LineItems)
-        {
-            if (string.IsNullOrWhiteSpace(item.Name))
-            {
-                throw new ArgumentException("Line item name is required.");
-            }
-
-            if (item.UnitAmountOre < 1)
-            {
-                throw new ArgumentException("Line item unit amount must be greater than zero.");
-            }
-
-            if (item.Quantity < 1)
-            {
-                throw new ArgumentException("Line item quantity must be greater than zero.");
-            }
-        }
     }
 
     private static Dictionary<string, string> CreateCheckoutMetadata(CreatePaymentSessionRequest request)
@@ -326,10 +402,47 @@ internal sealed class StripePaymentService : IPaymentService
 
     private void EnsureStripeSecretKeyConfigured()
     {
-        if (string.IsNullOrWhiteSpace(_stripeSecretKey))
+        if (string.IsNullOrWhiteSpace(_stripeSecretKey)
+            && !_locationSettings.Values.Any(settings => !string.IsNullOrWhiteSpace(settings.SecretKey)))
         {
-            throw new InvalidOperationException("Stripe:SecretKey is not configured.");
+            throw new InvalidOperationException("Stripe secret key is not configured.");
         }
+    }
+
+    private Event ConstructStripeEvent(string payload, string stripeSignature)
+    {
+        var secrets = _locationSettings.Values
+            .Select(settings => settings.WebhookSecret)
+            .Append(_webhookSecret)
+            .Where(secret => !string.IsNullOrWhiteSpace(secret))
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+
+        if (secrets.Count == 0)
+        {
+            throw new InvalidOperationException("Stripe webhook secret is not configured.");
+        }
+
+        StripeException? lastStripeException = null;
+
+        foreach (var secret in secrets)
+        {
+            try
+            {
+                return EventUtility.ConstructEvent(payload, stripeSignature, secret);
+            }
+            catch (StripeException ex)
+            {
+                lastStripeException = ex;
+            }
+        }
+
+        if (lastStripeException is not null)
+        {
+            throw lastStripeException;
+        }
+
+        throw new InvalidOperationException("Stripe webhook signature could not be verified.");
     }
 
     private async Task<DomainOrder?> ResolveOrderForCheckoutSessionAsync(
@@ -356,4 +469,185 @@ internal sealed class StripePaymentService : IPaymentService
 
         return null;
     }
+
+    private async Task<Session?> TryGetOpenCheckoutSessionAsync(DomainOrder order, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var service = new SessionService();
+            var session = await service.GetAsync(
+                order.StripeSessionId,
+                requestOptions: CreateStripeRequestOptions(order),
+                cancellationToken: cancellationToken);
+            if (string.Equals(session.Status, "open", StringComparison.OrdinalIgnoreCase)
+                && string.Equals(session.PaymentStatus, "unpaid", StringComparison.OrdinalIgnoreCase)
+                && !string.IsNullOrWhiteSpace(session.Url))
+            {
+                ValidateCheckoutSessionAmountAndCurrency(session, order, requirePaid: false);
+                return session;
+            }
+        }
+        catch (StripeException ex)
+        {
+            _logger.LogWarning(ex, "Existing Stripe Checkout session {SessionId} could not be reused for order {OrderId}.", order.StripeSessionId, order.Id);
+        }
+
+        return null;
+    }
+
+    private async Task<PaymentIntent?> TryGetReusablePaymentIntentAsync(DomainOrder order, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var service = new PaymentIntentService();
+            var intent = await service.GetAsync(
+                order.StripePaymentIntentId,
+                requestOptions: CreateStripeRequestOptions(order),
+                cancellationToken: cancellationToken);
+            ValidatePaymentIntentMatchesOrder(intent, order, requireSucceeded: false);
+
+            if (intent.Status is "requires_payment_method" or "requires_confirmation" or "requires_action" or "processing")
+            {
+                return intent;
+            }
+        }
+        catch (StripeException ex)
+        {
+            _logger.LogWarning(ex, "Existing Stripe PaymentIntent {PaymentIntentId} could not be reused for order {OrderId}.", order.StripePaymentIntentId, order.Id);
+        }
+
+        return null;
+    }
+
+    private static long GetExpectedAmountOre(DomainOrder order)
+    {
+        return ToOre(order.Total);
+    }
+
+    private static long ToOre(decimal amount)
+    {
+        return (long)Math.Round(amount * 100m, MidpointRounding.AwayFromZero);
+    }
+
+    private static void ValidateCheckoutSessionMatchesOrder(Session session, DomainOrder order)
+    {
+        ValidateCheckoutSessionAmountAndCurrency(session, order, requirePaid: true);
+
+        if (!string.IsNullOrWhiteSpace(order.StripeSessionId)
+            && string.Equals(session.Id, order.StripeSessionId, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        if (string.Equals(session.ClientReferenceId, order.Id.ToString(), StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        if (session.Metadata.TryGetValue("orderId", out var orderId)
+            && string.Equals(orderId, order.Id.ToString(), StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        throw new InvalidOperationException("Checkout session is not linked to the order.");
+    }
+
+    private static void ValidateCheckoutSessionAmountAndCurrency(Session session, DomainOrder order, bool requirePaid)
+    {
+        if (requirePaid && !string.Equals(session.PaymentStatus, "paid", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException("Checkout session is not paid.");
+        }
+
+        if (!string.Equals(session.Currency, "sek", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException("Checkout session currency does not match the order.");
+        }
+
+        if (session.AmountTotal != GetExpectedAmountOre(order))
+        {
+            throw new InvalidOperationException("Checkout session amount does not match the order.");
+        }
+    }
+
+    private static void ValidatePaymentIntentMatchesOrder(PaymentIntent intent, DomainOrder order, bool requireSucceeded = true)
+    {
+        if (requireSucceeded && !string.Equals(intent.Status, "succeeded", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException("Payment has not succeeded yet.");
+        }
+
+        if (!string.Equals(intent.Currency, "sek", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException("Payment currency does not match the order.");
+        }
+
+        if (intent.Amount != GetExpectedAmountOre(order))
+        {
+            throw new InvalidOperationException("Payment amount does not match the order.");
+        }
+
+        if (!string.IsNullOrWhiteSpace(order.StripePaymentIntentId)
+            && string.Equals(intent.Id, order.StripePaymentIntentId, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        if (intent.Metadata.TryGetValue("orderId", out var orderId)
+            && string.Equals(orderId, order.Id.ToString(), StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        throw new InvalidOperationException("Payment intent is not linked to the order.");
+    }
+
+    private RequestOptions CreateStripeRequestOptions(DomainOrder order)
+    {
+        var secretKey = ResolveStripeSecretKey(order.Location);
+        return new RequestOptions { ApiKey = secretKey };
+    }
+
+    private string ResolveStripeSecretKey(string location)
+    {
+        var locationKey = GetLocationKey(location);
+        if (_locationSettings.TryGetValue(locationKey, out var settings)
+            && !string.IsNullOrWhiteSpace(settings.SecretKey))
+        {
+            return settings.SecretKey;
+        }
+
+        if (!string.IsNullOrWhiteSpace(_stripeSecretKey))
+        {
+            return _stripeSecretKey;
+        }
+
+        throw new InvalidOperationException($"Stripe secret key is not configured for {locationKey}.");
+    }
+
+    private static IReadOnlyDictionary<string, StripeLocationSettings> LoadLocationSettings(IConfiguration configuration)
+    {
+        return configuration.GetSection("Stripe:Locations")
+            .GetChildren()
+            .ToDictionary(
+                section => section.Key,
+                section => new StripeLocationSettings(
+                    section["SecretKey"] ?? string.Empty,
+                    section["WebhookSecret"] ?? string.Empty),
+                StringComparer.OrdinalIgnoreCase);
+    }
+
+    private static string GetLocationKey(string location)
+    {
+        var normalized = location
+            .Replace("ä", "a", StringComparison.OrdinalIgnoreCase)
+            .Replace("ö", "o", StringComparison.OrdinalIgnoreCase);
+
+        return normalized.Contains("jarntorget", StringComparison.OrdinalIgnoreCase)
+            ? "Jarntorget"
+            : "Molndal";
+    }
+
+    private sealed record StripeLocationSettings(string SecretKey, string WebhookSecret);
 }
