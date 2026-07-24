@@ -60,7 +60,19 @@ internal sealed class MenuService : IMenuService
             TaxRate = request.TaxRate
         };
 
-        await _menuRepository.AddAsync(item, cancellationToken);
+        try
+        {
+            await _menuRepository.AddAsync(item, cancellationToken);
+        }
+        catch
+        {
+            if (!string.IsNullOrEmpty(imageUrl))
+            {
+                await _fileStorage.DeleteAsync(imageUrl, CancellationToken.None);
+            }
+
+            throw;
+        }
         return MapToDto(item);
     }
 
@@ -77,21 +89,31 @@ internal sealed class MenuService : IMenuService
 
         if (imageStream is not null && imageFileName is not null && imageContentType is not null)
         {
-            if (!string.IsNullOrEmpty(item.ImageUrl))
+            var oldImageUrl = item.ImageUrl;
+            var newImageUrl = await _fileStorage.SaveAsync(imageStream, imageFileName, imageContentType, cancellationToken);
+            item.ImageUrl = newImageUrl;
+
+            try
             {
-                await _fileStorage.DeleteAsync(item.ImageUrl, cancellationToken);
+                ApplyUpdate(item, request);
+                await _menuRepository.UpdateAsync(item, cancellationToken);
+            }
+            catch
+            {
+                item.ImageUrl = oldImageUrl;
+                await _fileStorage.DeleteAsync(newImageUrl, CancellationToken.None);
+                throw;
             }
 
-            item.ImageUrl = await _fileStorage.SaveAsync(imageStream, imageFileName, imageContentType, cancellationToken);
+            if (!string.IsNullOrEmpty(oldImageUrl))
+            {
+                await _fileStorage.DeleteAsync(oldImageUrl, cancellationToken);
+            }
+
+            return MapToDto(item);
         }
 
-        item.Name = new LocalizedText { Se = request.NameSe, En = request.NameEn };
-        item.Category = request.Category;
-        item.Price = request.Price;
-        item.IsAvailable = request.IsAvailable;
-        item.BakedOnSite = request.BakedOnSite;
-        item.BakedThisMorning = request.BakedThisMorning;
-        item.TaxRate = request.TaxRate;
+        ApplyUpdate(item, request);
 
         await _menuRepository.UpdateAsync(item, cancellationToken);
         return MapToDto(item);
@@ -102,12 +124,11 @@ internal sealed class MenuService : IMenuService
         var item = await _menuRepository.GetByIdAsync(id, cancellationToken)
             ?? throw new KeyNotFoundException($"MenuItem {id} not found.");
 
+        await _menuRepository.DeleteAsync(item, cancellationToken);
         if (!string.IsNullOrEmpty(item.ImageUrl))
         {
             await _fileStorage.DeleteAsync(item.ImageUrl, cancellationToken);
         }
-
-        await _menuRepository.DeleteAsync(item, cancellationToken);
     }
 
     private static MenuItemDto MapToDto(MenuItem item)
@@ -127,5 +148,16 @@ internal sealed class MenuService : IMenuService
             BakedThisMorning = item.BakedThisMorning,
             TaxRate = item.TaxRate
         };
+    }
+
+    private static void ApplyUpdate(MenuItem item, UpdateMenuItemRequest request)
+    {
+        item.Name = new LocalizedText { Se = request.NameSe, En = request.NameEn };
+        item.Category = request.Category;
+        item.Price = request.Price;
+        item.IsAvailable = request.IsAvailable;
+        item.BakedOnSite = request.BakedOnSite;
+        item.BakedThisMorning = request.BakedThisMorning;
+        item.TaxRate = request.TaxRate;
     }
 }

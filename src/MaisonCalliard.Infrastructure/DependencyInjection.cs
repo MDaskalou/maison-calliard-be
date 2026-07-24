@@ -32,7 +32,19 @@ public static class DependencyInjection
 
         var uploadsPath = Path.Combine(environment.ContentRootPath, "wwwroot", "uploads");
         var baseUrl = configuration["App:BaseUrl"] ?? "http://localhost:5000";
-        services.AddSingleton<IFileStorageService>(new LocalFileStorageService(uploadsPath, baseUrl));
+        var imageOptions = new ImageUploadOptions();
+        configuration.GetSection(ImageUploadOptions.SectionName).Bind(imageOptions);
+        services.AddSingleton(imageOptions);
+        services.AddSingleton<ImageProcessor>();
+        services.AddSingleton<IFileStorageService>(provider =>
+            new LocalFileStorageService(uploadsPath, baseUrl, provider.GetRequiredService<ImageProcessor>()));
+        services.AddScoped<IExistingImageOptimizationService>(provider =>
+            new ExistingImageOptimizationService(
+                provider.GetRequiredService<AppDbContext>(),
+                provider.GetRequiredService<IFileStorageService>(),
+                imageOptions,
+                uploadsPath,
+                provider.GetRequiredService<Microsoft.Extensions.Logging.ILogger<ExistingImageOptimizationService>>()));
 
         var stripeSecretKey = configuration["Stripe:SecretKey"] ?? string.Empty;
         StripeConfiguration.ApiKey = stripeSecretKey;

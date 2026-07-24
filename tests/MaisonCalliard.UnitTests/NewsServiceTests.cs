@@ -76,6 +76,42 @@ public sealed class NewsServiceTests
     }
 
     [Fact]
+    public async Task CreateAsync_WhenDatabaseWriteFails_RemovesNewImage()
+    {
+        var request = new CreateNewsItemRequest { TitleSe = "Nyhet", TitleEn = "News", SubtitleSe = "Sub", SubtitleEn = "Sub" };
+        var imageStream = new MemoryStream([1, 2, 3]);
+        const string newUrl = "https://example.com/uploads/new.webp";
+        _fileStorageMock.Setup(f => f.SaveAsync(imageStream, "image.jpg", "image/jpeg", default)).ReturnsAsync(newUrl);
+        _newsRepositoryMock.Setup(r => r.AddAsync(It.IsAny<NewsItem>(), default)).ThrowsAsync(new InvalidOperationException());
+
+        var act = () => _sut.CreateAsync(request, imageStream, "image.jpg", "image/jpeg");
+
+        await act.Should().ThrowAsync<InvalidOperationException>();
+        _fileStorageMock.Verify(f => f.DeleteAsync(newUrl, CancellationToken.None), Times.Once);
+    }
+
+    [Fact]
+    public async Task UpdateAsync_WhenDatabaseWriteFails_KeepsOldImageAndRemovesNewImage()
+    {
+        var id = Guid.NewGuid();
+        const string oldUrl = "https://example.com/uploads/old.jpg";
+        const string newUrl = "https://example.com/uploads/new.webp";
+        var item = new NewsItem { Id = id, Title = new LocalizedText(), Subtitle = new LocalizedText(), ImageUrl = oldUrl };
+        var request = new UpdateNewsItemRequest { TitleSe = "Ny", TitleEn = "New", SubtitleSe = "Sub", SubtitleEn = "Sub" };
+        var imageStream = new MemoryStream([1, 2, 3]);
+        _newsRepositoryMock.Setup(r => r.GetByIdAsync(id, default)).ReturnsAsync(item);
+        _fileStorageMock.Setup(f => f.SaveAsync(imageStream, "image.jpg", "image/jpeg", default)).ReturnsAsync(newUrl);
+        _newsRepositoryMock.Setup(r => r.UpdateAsync(item, default)).ThrowsAsync(new InvalidOperationException());
+
+        var act = () => _sut.UpdateAsync(id, request, imageStream, "image.jpg", "image/jpeg");
+
+        await act.Should().ThrowAsync<InvalidOperationException>();
+        item.ImageUrl.Should().Be(oldUrl);
+        _fileStorageMock.Verify(f => f.DeleteAsync(newUrl, CancellationToken.None), Times.Once);
+        _fileStorageMock.Verify(f => f.DeleteAsync(oldUrl, It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
     public async Task DeleteAsync_WhenNotFound_ThrowsKeyNotFoundException()
     {
         // Arrange

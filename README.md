@@ -43,6 +43,53 @@ Hantera tårtor och bakverk som kan förbeställas.
 | `DELETE` | `/api/products/:id` | Ta bort produkt och tillhörande bild (Admin). |
 | `PATCH` | `/api/products/:id/availability` | Snabbknapp för att växla `isAvailable` (Admin). |
 
+## Bildhantering
+
+`POST` och `PUT` för `/api/news`, `/api/menu` och `/api/products` behåller samma
+`multipart/form-data`-kontrakt och fältnamnet `image`. JPEG, PNG och WebP godtas,
+men formatet verifieras från filinnehållet och inte från filnamn eller klientens
+`Content-Type`. En ogiltig eller för stor bild ger `400 Bad Request` som Problem
+Details med titeln `Ogiltig bild`.
+
+Alla nya bilder EXIF-roteras, skalas proportionerligt till högst 2400 px långsida
+utan uppskalning och sparas som versionsunik lossy WebP. Kvaliteten justeras från
+82 ned till den konfigurerade kvalitetsgränsen för att sikta på högst 200 KiB.
+Transparens bevaras. `ImageUrl` har samma betydelse som tidigare men nya URL:er
+slutar därför med `.webp`. Statiska filer under `/uploads` levereras som
+`image/webp` och med:
+
+```http
+Cache-Control: public, max-age=31536000, immutable
+```
+
+Gränserna kan ändras under `Uploads` i `appsettings.json`: maximal filstorlek,
+bredd, höjd, pixelantal, utgående långsida, målstorlek och WebP-kvalitet. Varje
+bearbetning loggar originalformat, originalstorlek, dimensioner, slutstorlek,
+kvalitet och tid. Om målstorleken inte kan nås utan att gå under den tillåtna
+kvalitetsgränsen sparas bilden och en varning loggas med den faktiska storleken.
+
+Responsiva 640/1280/1920-varianter har övervägts men genereras inte i denna
+version. Nuvarande API exponerar bara ett `ImageUrl`; att lägga till `srcset`-data
+skulle ändra kontraktet och kräver en samordnad frontendändring. Primärbilden på
+2400 px fungerar fortsatt i befintlig hero section.
+
+### Engångsjobb för befintliga bilder
+
+Kör följande med samma miljövariabler, databasanslutning, `App:BaseUrl` och
+persistenta uploads-volym som produktionen:
+
+```powershell
+dotnet MaisonCalliard.Api.dll --optimize-existing-images
+```
+
+Jobbet läser endast bilder som refereras av NewsItems, MenuItems och Products.
+För varje gammal fil skapas och färdigställs först en ny versionsunik WebP, sedan
+uppdateras alla matchande `ImageUrl` i databasen, och först därefter raderas den
+gamla filen. Vid databasfel återställs referenserna och den nya filen tas bort.
+Redan optimerade WebP-filer under målstorleken hoppas över, så jobbet kan köras
+igen säkert efter ett avbrott. Saknade eller externa filer loggas och lämnas
+orörda. Ta ändå normal backup av databas och uploads-volym före produktionskörning.
+
 ---
 
 ## 4. Beställningar (Orders)

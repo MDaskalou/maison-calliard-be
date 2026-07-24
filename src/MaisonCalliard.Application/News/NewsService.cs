@@ -53,7 +53,19 @@ internal sealed class NewsService : INewsService
             Link = request.Link
         };
 
-        await _newsRepository.AddAsync(item, cancellationToken);
+        try
+        {
+            await _newsRepository.AddAsync(item, cancellationToken);
+        }
+        catch
+        {
+            if (!string.IsNullOrEmpty(imageUrl))
+            {
+                await _fileStorage.DeleteAsync(imageUrl, CancellationToken.None);
+            }
+
+            throw;
+        }
         return MapToDto(item);
     }
 
@@ -70,12 +82,30 @@ internal sealed class NewsService : INewsService
 
         if (imageStream is not null && imageFileName is not null && imageContentType is not null)
         {
-            if (!string.IsNullOrEmpty(item.ImageUrl))
+            var oldImageUrl = item.ImageUrl;
+            var newImageUrl = await _fileStorage.SaveAsync(imageStream, imageFileName, imageContentType, cancellationToken);
+            item.ImageUrl = newImageUrl;
+
+            try
             {
-                await _fileStorage.DeleteAsync(item.ImageUrl, cancellationToken);
+                item.Title = new LocalizedText { Se = request.TitleSe, En = request.TitleEn };
+                item.Subtitle = new LocalizedText { Se = request.SubtitleSe, En = request.SubtitleEn };
+                item.Link = request.Link;
+                await _newsRepository.UpdateAsync(item, cancellationToken);
+            }
+            catch
+            {
+                item.ImageUrl = oldImageUrl;
+                await _fileStorage.DeleteAsync(newImageUrl, CancellationToken.None);
+                throw;
             }
 
-            item.ImageUrl = await _fileStorage.SaveAsync(imageStream, imageFileName, imageContentType, cancellationToken);
+            if (!string.IsNullOrEmpty(oldImageUrl))
+            {
+                await _fileStorage.DeleteAsync(oldImageUrl, cancellationToken);
+            }
+
+            return MapToDto(item);
         }
 
         item.Title = new LocalizedText { Se = request.TitleSe, En = request.TitleEn };
@@ -91,12 +121,11 @@ internal sealed class NewsService : INewsService
         var item = await _newsRepository.GetByIdAsync(id, cancellationToken)
             ?? throw new KeyNotFoundException($"NewsItem {id} not found.");
 
+        await _newsRepository.DeleteAsync(item, cancellationToken);
         if (!string.IsNullOrEmpty(item.ImageUrl))
         {
             await _fileStorage.DeleteAsync(item.ImageUrl, cancellationToken);
         }
-
-        await _newsRepository.DeleteAsync(item, cancellationToken);
     }
 
     private static NewsItemDto MapToDto(NewsItem item)

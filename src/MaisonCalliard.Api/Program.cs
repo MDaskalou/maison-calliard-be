@@ -3,12 +3,17 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using MaisonCalliard.Application;
+using MaisonCalliard.Application.Files;
 using MaisonCalliard.Infrastructure;
+using MaisonCalliard.Infrastructure.Services;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Http.Features;
+using Microsoft.AspNetCore.StaticFiles;
 using Microsoft.IdentityModel.Tokens;
 
-var builder = WebApplication.CreateBuilder(args);
+var optimizeExistingImages = args.Contains("--optimize-existing-images", StringComparer.OrdinalIgnoreCase);
+var builderArgs = args.Where(arg => !string.Equals(arg, "--optimize-existing-images", StringComparison.OrdinalIgnoreCase)).ToArray();
+var builder = WebApplication.CreateBuilder(builderArgs);
 
 const long DefaultMaxImageUploadBytes = 10 * 1024 * 1024;
 const int MaxInMemoryUploadBufferBytes = 8 * 1024 * 1024;
@@ -126,11 +131,55 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 }
 
-app.UseStaticFiles();
+app.Use(async (context, next) =>
+{
+    try
+    {
+        await next(context);
+    }
+    catch (ImageValidationException exception)
+    {
+        if (context.Response.HasStarted)
+        {
+            throw;
+        }
+
+        context.Response.StatusCode = StatusCodes.Status400BadRequest;
+        await Results.Problem(
+            statusCode: StatusCodes.Status400BadRequest,
+            title: "Ogiltig bild",
+            detail: exception.Message).ExecuteAsync(context);
+    }
+});
+
+var uploadContentTypes = new FileExtensionContentTypeProvider();
+uploadContentTypes.Mappings[".webp"] = "image/webp";
+app.UseStaticFiles(new StaticFileOptions
+{
+    ContentTypeProvider = uploadContentTypes,
+    OnPrepareResponse = context =>
+    {
+        if (context.Context.Request.Path.StartsWithSegments("/uploads"))
+        {
+            context.Context.Response.Headers.CacheControl = "public, max-age=31536000, immutable";
+        }
+    }
+});
 app.UseCors();
 app.UseAuthentication();
 app.UseAuthorization();
 app.MapControllers();
+
+if (optimizeExistingImages)
+{
+    await using var scope = app.Services.CreateAsyncScope();
+    var optimizer = scope.ServiceProvider.GetRequiredService<IExistingImageOptimizationService>();
+    var result = await optimizer.OptimizeAsync();
+    app.Logger.LogInformation(
+        "Existing image optimization completed: {OptimizedFiles} files, {UpdatedRecords} database records, {SkippedFiles} skipped, {MissingFiles} missing",
+        result.OptimizedFiles, result.UpdatedRecords, result.SkippedFiles, result.MissingFiles);
+    return;
+}
 
 app.Run();
 

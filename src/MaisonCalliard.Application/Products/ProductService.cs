@@ -65,7 +65,19 @@ internal sealed class ProductService : IProductService
             TaxRate = request.TaxRate
         };
 
-        await _productRepository.AddAsync(product, cancellationToken);
+        try
+        {
+            await _productRepository.AddAsync(product, cancellationToken);
+        }
+        catch
+        {
+            if (!string.IsNullOrEmpty(imageUrl))
+            {
+                await _fileStorage.DeleteAsync(imageUrl, CancellationToken.None);
+            }
+
+            throw;
+        }
         return MapToDto(product);
     }
 
@@ -82,28 +94,31 @@ internal sealed class ProductService : IProductService
 
         if (imageStream is not null && imageFileName is not null && imageContentType is not null)
         {
-            if (!string.IsNullOrEmpty(product.ImageUrl))
+            var oldImageUrl = product.ImageUrl;
+            var newImageUrl = await _fileStorage.SaveAsync(imageStream, imageFileName, imageContentType, cancellationToken);
+            product.ImageUrl = newImageUrl;
+
+            try
             {
-                await _fileStorage.DeleteAsync(product.ImageUrl, cancellationToken);
+                ApplyUpdate(product, request);
+                await _productRepository.UpdateAsync(product, cancellationToken);
+            }
+            catch
+            {
+                product.ImageUrl = oldImageUrl;
+                await _fileStorage.DeleteAsync(newImageUrl, CancellationToken.None);
+                throw;
             }
 
-            product.ImageUrl = await _fileStorage.SaveAsync(imageStream, imageFileName, imageContentType, cancellationToken);
+            if (!string.IsNullOrEmpty(oldImageUrl))
+            {
+                await _fileStorage.DeleteAsync(oldImageUrl, cancellationToken);
+            }
+
+            return MapToDto(product);
         }
 
-        product.Name = new LocalizedText { Se = request.NameSe, En = request.NameEn };
-        product.Description = new LocalizedText { Se = request.DescriptionSe, En = request.DescriptionEn };
-        product.Category = request.Category;
-        product.Style = request.Style;
-        product.IsAvailable = request.IsAvailable;
-        product.IsVegan = request.IsVegan;
-        product.IsSeason = request.IsSeason;
-        product.BakedOnSite = request.BakedOnSite;
-        product.BakedThisMorning = request.BakedThisMorning;
-        product.Stock = request.Stock;
-        product.Ingredients = new LocalizedText { Se = request.IngredientsSe, En = request.IngredientsEn };
-        product.Allergies = request.Allergies;
-        product.PriceOptions = request.PriceOptions.Select(p => new PriceOption { Label = p.Label, Price = p.Price }).ToList();
-        product.TaxRate = request.TaxRate;
+        ApplyUpdate(product, request);
 
         await _productRepository.UpdateAsync(product, cancellationToken);
         return MapToDto(product);
@@ -114,12 +129,11 @@ internal sealed class ProductService : IProductService
         var product = await _productRepository.GetByIdAsync(id, cancellationToken)
             ?? throw new KeyNotFoundException($"Product {id} not found.");
 
+        await _productRepository.DeleteAsync(product, cancellationToken);
         if (!string.IsNullOrEmpty(product.ImageUrl))
         {
             await _fileStorage.DeleteAsync(product.ImageUrl, cancellationToken);
         }
-
-        await _productRepository.DeleteAsync(product, cancellationToken);
     }
 
     public async Task<ProductDto> ToggleAvailabilityAsync(Guid id, CancellationToken cancellationToken = default)
@@ -153,5 +167,23 @@ internal sealed class ProductService : IProductService
             PriceOptions = product.PriceOptions.Select(p => new PriceOptionDto { Label = p.Label, Price = p.Price }).ToList(),
             TaxRate = product.TaxRate
         };
+    }
+
+    private static void ApplyUpdate(Product product, UpdateProductRequest request)
+    {
+        product.Name = new LocalizedText { Se = request.NameSe, En = request.NameEn };
+        product.Description = new LocalizedText { Se = request.DescriptionSe, En = request.DescriptionEn };
+        product.Category = request.Category;
+        product.Style = request.Style;
+        product.IsAvailable = request.IsAvailable;
+        product.IsVegan = request.IsVegan;
+        product.IsSeason = request.IsSeason;
+        product.BakedOnSite = request.BakedOnSite;
+        product.BakedThisMorning = request.BakedThisMorning;
+        product.Stock = request.Stock;
+        product.Ingredients = new LocalizedText { Se = request.IngredientsSe, En = request.IngredientsEn };
+        product.Allergies = request.Allergies;
+        product.PriceOptions = request.PriceOptions.Select(p => new PriceOption { Label = p.Label, Price = p.Price }).ToList();
+        product.TaxRate = request.TaxRate;
     }
 }
