@@ -11,6 +11,7 @@ public interface IOrderService
     Task<IReadOnlyList<OrderDto>> GetAllAsync(CancellationToken cancellationToken = default);
     Task<OrderDto?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default);
     Task<OrderDto> CreateAsync(CreateOrderRequest request, CancellationToken cancellationToken = default);
+    Task<OrderDto> UpdateAsync(Guid id, UpdateOrderRequest request, CancellationToken cancellationToken = default);
     Task<OrderDto> UpdateStatusAsync(Guid id, UpdateOrderStatusRequest request, CancellationToken cancellationToken = default);
     Task ResendReceiptAsync(Guid id, CancellationToken cancellationToken = default);
     Task DeleteAsync(Guid id, CancellationToken cancellationToken = default);
@@ -76,6 +77,64 @@ internal sealed class OrderService : IOrderService
         return MapToDto(order);
     }
 
+    public async Task<OrderDto> UpdateAsync(Guid id, UpdateOrderRequest request, CancellationToken cancellationToken = default)
+    {
+        var order = await _orderRepository.GetByIdAsync(id, cancellationToken)
+            ?? throw new KeyNotFoundException($"Order {id} not found.");
+
+        ValidateUpdateOrderRequest(request);
+
+        var paidAt = order.PaidAt;
+        var paymentMethod = order.PaymentMethod;
+        var stripeSessionId = order.StripeSessionId;
+        var stripePaymentIntentId = order.StripePaymentIntentId;
+        var receiptNumber = order.ReceiptNumber;
+        var isPrinted = order.IsPrinted;
+        var customerAddress = order.CustomerAddress;
+        var receiptSentAt = order.ReceiptSentAt;
+        var customerEmailSentAt = order.CustomerEmailSentAt;
+        var internalNotificationSentAt = order.InternalNotificationSentAt;
+        var createdAt = order.CreatedAt;
+
+        var orderItems = new List<CartItem>();
+        foreach (var item in request.Items)
+        {
+            orderItems.Add(await CreateVerifiedOrderItemAsync(item, cancellationToken));
+        }
+
+        order.Items.Clear();
+        foreach (var item in orderItems)
+        {
+            item.OrderId = order.Id;
+            order.Items.Add(item);
+        }
+
+        order.PickupDateTime = request.PickupDateTime;
+        order.Location = request.Location;
+        order.CustomerName = request.CustomerName;
+        order.Email = request.Email;
+        order.Phone = request.Phone;
+        order.Message = request.Message;
+        order.Status = request.Status;
+        order.Total = CalculateTotal(order.Items);
+        order.TaxAmount = CalculateVatBreakdown(order.Items).Sum(v => v.TaxAmount);
+
+        order.PaidAt = paidAt;
+        order.PaymentMethod = paymentMethod;
+        order.StripeSessionId = stripeSessionId;
+        order.StripePaymentIntentId = stripePaymentIntentId;
+        order.ReceiptNumber = receiptNumber;
+        order.IsPrinted = isPrinted;
+        order.CustomerAddress = customerAddress;
+        order.ReceiptSentAt = receiptSentAt;
+        order.CustomerEmailSentAt = customerEmailSentAt;
+        order.InternalNotificationSentAt = internalNotificationSentAt;
+        order.CreatedAt = createdAt;
+
+        await _orderRepository.UpdateAsync(order, cancellationToken);
+        return MapToDto(order);
+    }
+
     public async Task<OrderDto> UpdateStatusAsync(Guid id, UpdateOrderStatusRequest request, CancellationToken cancellationToken = default)
     {
         var order = await _orderRepository.GetByIdAsync(id, cancellationToken)
@@ -138,7 +197,8 @@ internal sealed class OrderService : IOrderService
                 UnitPrice = i.Price,
                 LineTotal = Math.Round(i.Price * i.Quantity, 2, MidpointRounding.AwayFromZero),
                 Quantity = i.Quantity,
-                TaxRate = i.TaxRate
+                TaxRate = i.TaxRate,
+                IsPaid = i.IsPaid
             }).ToList(),
             Total = order.Total,
             TaxAmount = order.TaxAmount,
@@ -171,6 +231,27 @@ internal sealed class OrderService : IOrderService
         if (string.IsNullOrWhiteSpace(request.CustomerAddress))
         {
             throw new ArgumentException("CustomerAddress is required.");
+        }
+
+        foreach (var item in request.Items)
+        {
+            if (string.IsNullOrWhiteSpace(item.ProductId) || !Guid.TryParse(item.ProductId, out _))
+            {
+                throw new ArgumentException("Order item ProductId must be a valid product id.");
+            }
+
+            if (item.Quantity < 1)
+            {
+                throw new ArgumentException("Order item quantity must be greater than zero.");
+            }
+        }
+    }
+
+    private static void ValidateUpdateOrderRequest(UpdateOrderRequest request)
+    {
+        if (request.Items.Count == 0)
+        {
+            throw new ArgumentException("At least one order item is required.");
         }
 
         foreach (var item in request.Items)
@@ -225,9 +306,12 @@ internal sealed class OrderService : IOrderService
             OptionLabel = option.Label,
             Price = option.Price,
             Quantity = item.Quantity,
-            TaxRate = taxRate
+            TaxRate = taxRate,
+            IsPaid = ResolveIsPaid(item.IsPaid)
         };
     }
+
+    private static bool ResolveIsPaid(bool? isPaid) => isPaid != false;
 
     private static decimal CalculateTotal(IEnumerable<CartItem> items)
     {

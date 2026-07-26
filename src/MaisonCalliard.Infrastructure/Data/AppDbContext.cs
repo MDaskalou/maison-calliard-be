@@ -132,6 +132,7 @@ internal sealed class AppDbContext : DbContext
         modelBuilder.Entity<CartItem>().HasKey(c => c.Id);
         modelBuilder.Entity<CartItem>().Property(c => c.Price).HasPrecision(18, 2);
         modelBuilder.Entity<CartItem>().Property(c => c.TaxRate).HasPrecision(5, 2);
+        modelBuilder.Entity<CartItem>().Property(c => c.IsPaid).HasDefaultValue(true);
     }
 
     private static void ConfigureReceiptSequence(ModelBuilder modelBuilder)

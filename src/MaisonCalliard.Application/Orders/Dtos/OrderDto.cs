@@ -41,6 +41,7 @@ public sealed class CartItemDto
     public decimal LineTotal { get; set; }
     public int Quantity { get; set; }
     public decimal TaxRate { get; set; }
+    public bool? IsPaid { get; set; }
 }
 
 public sealed class VatBreakdownDto

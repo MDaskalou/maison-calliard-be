@@ -12,4 +12,6 @@ public sealed class CartItem
     public decimal Price { get; set; }
     public int Quantity { get; set; }
     public decimal TaxRate { get; set; }
+    /// <summary>false = unpaid add-on after online payment (collect at register).</summary>
+    public bool IsPaid { get; set; } = true;
 }

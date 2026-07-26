@@ -51,6 +51,25 @@ public sealed class OrdersController : ControllerBase
     }
 
     [Authorize(Roles = "admin")]
+    [HttpPut("{id:guid}")]
+    public async Task<IActionResult> Update(Guid id, [FromBody] UpdateOrderRequest request, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var result = await _orderService.UpdateAsync(id, request, cancellationToken);
+            return Ok(result);
+        }
+        catch (KeyNotFoundException)
+        {
+            return NotFound();
+        }
+        catch (ArgumentException ex)
+        {
+            return BadRequest(new { title = ex.Message });
+        }
+    }
+
+    [Authorize(Roles = "admin")]
     [HttpPatch("{id:guid}/status")]
     public async Task<IActionResult> UpdateStatus(Guid id, [FromBody] UpdateOrderStatusRequest request, CancellationToken cancellationToken)
     {
