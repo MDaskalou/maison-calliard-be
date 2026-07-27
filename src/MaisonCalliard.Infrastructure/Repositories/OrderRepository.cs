@@ -41,19 +41,26 @@ internal sealed class OrderRepository : IOrderRepository
         await _context.SaveChangesAsync(cancellationToken);
     }
 
-    public async Task ReplaceItemsAsync(Guid orderId, IReadOnlyList<CartItem> items, CancellationToken cancellationToken = default)
+    public async Task SaveOrderUpdateAsync(Order order, IReadOnlyList<CartItem> items, CancellationToken cancellationToken = default)
     {
-        var existingItems = await _context.CartItems
-            .Where(item => item.OrderId == orderId)
-            .ToListAsync(cancellationToken);
+        if (_context.Entry(order).State == EntityState.Detached)
+        {
+            throw new InvalidOperationException("Order must be tracked before it can be updated.");
+        }
 
-        _context.CartItems.RemoveRange(existingItems);
+        if (order.Items.Count > 0)
+        {
+            _context.CartItems.RemoveRange(order.Items.ToList());
+            order.Items.Clear();
+        }
 
         foreach (var item in items)
         {
-            item.OrderId = orderId;
-            _context.CartItems.Add(item);
+            item.OrderId = order.Id;
+            order.Items.Add(item);
         }
+
+        await _context.SaveChangesAsync(cancellationToken);
     }
 
     public async Task UpdateAsync(Order order, CancellationToken cancellationToken = default)

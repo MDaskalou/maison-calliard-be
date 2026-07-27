@@ -51,11 +51,17 @@ public sealed class OrderServiceUpdateTests
 
         Order? savedOrder = null;
         _orderRepositoryMock
-            .Setup(r => r.ReplaceItemsAsync(order.Id, It.IsAny<IReadOnlyList<CartItem>>(), It.IsAny<CancellationToken>()))
-            .Returns(Task.CompletedTask);
-        _orderRepositoryMock
-            .Setup(r => r.UpdateAsync(It.IsAny<Order>(), It.IsAny<CancellationToken>()))
-            .Callback<Order, CancellationToken>((updatedOrder, _) => savedOrder = updatedOrder)
+            .Setup(r => r.SaveOrderUpdateAsync(It.IsAny<Order>(), It.IsAny<IReadOnlyList<CartItem>>(), It.IsAny<CancellationToken>()))
+            .Callback<Order, IReadOnlyList<CartItem>, CancellationToken>((updatedOrder, items, _) =>
+            {
+                updatedOrder.Items.Clear();
+                foreach (var item in items)
+                {
+                    updatedOrder.Items.Add(item);
+                }
+
+                savedOrder = updatedOrder;
+            })
             .Returns(Task.CompletedTask);
 
         var request = new UpdateOrderRequest
@@ -104,10 +110,15 @@ public sealed class OrderServiceUpdateTests
             .Setup(r => r.GetByIdAsync(order.Id, It.IsAny<CancellationToken>()))
             .ReturnsAsync(order);
         _orderRepositoryMock
-            .Setup(r => r.ReplaceItemsAsync(order.Id, It.IsAny<IReadOnlyList<CartItem>>(), It.IsAny<CancellationToken>()))
-            .Returns(Task.CompletedTask);
-        _orderRepositoryMock
-            .Setup(r => r.UpdateAsync(It.IsAny<Order>(), It.IsAny<CancellationToken>()))
+            .Setup(r => r.SaveOrderUpdateAsync(It.IsAny<Order>(), It.IsAny<IReadOnlyList<CartItem>>(), It.IsAny<CancellationToken>()))
+            .Callback<Order, IReadOnlyList<CartItem>, CancellationToken>((updatedOrder, items, _) =>
+            {
+                updatedOrder.Items.Clear();
+                foreach (var item in items)
+                {
+                    updatedOrder.Items.Add(item);
+                }
+            })
             .Returns(Task.CompletedTask);
 
         var request = new UpdateOrderRequest
@@ -147,11 +158,17 @@ public sealed class OrderServiceUpdateTests
 
         Order? savedOrder = null;
         _orderRepositoryMock
-            .Setup(r => r.ReplaceItemsAsync(order.Id, It.IsAny<IReadOnlyList<CartItem>>(), It.IsAny<CancellationToken>()))
-            .Returns(Task.CompletedTask);
-        _orderRepositoryMock
-            .Setup(r => r.UpdateAsync(It.IsAny<Order>(), It.IsAny<CancellationToken>()))
-            .Callback<Order, CancellationToken>((updatedOrder, _) => savedOrder = updatedOrder)
+            .Setup(r => r.SaveOrderUpdateAsync(It.IsAny<Order>(), It.IsAny<IReadOnlyList<CartItem>>(), It.IsAny<CancellationToken>()))
+            .Callback<Order, IReadOnlyList<CartItem>, CancellationToken>((updatedOrder, items, _) =>
+            {
+                updatedOrder.Items.Clear();
+                foreach (var item in items)
+                {
+                    updatedOrder.Items.Add(item);
+                }
+
+                savedOrder = updatedOrder;
+            })
             .Returns(Task.CompletedTask);
 
         var request = new UpdateOrderRequest

@@ -9,7 +9,7 @@ public interface IOrderRepository
     Task<Order?> GetByStripeSessionIdAsync(string sessionId, CancellationToken cancellationToken = default);
     Task<Order?> GetByStripePaymentIntentIdAsync(string paymentIntentId, CancellationToken cancellationToken = default);
     Task AddAsync(Order order, CancellationToken cancellationToken = default);
-    Task ReplaceItemsAsync(Guid orderId, IReadOnlyList<CartItem> items, CancellationToken cancellationToken = default);
+    Task SaveOrderUpdateAsync(Order order, IReadOnlyList<CartItem> items, CancellationToken cancellationToken = default);
     Task UpdateAsync(Order order, CancellationToken cancellationToken = default);
     Task MarkAsPaidAsync(
         Order order,

@@ -102,9 +102,6 @@ internal sealed class OrderService : IOrderService
             orderItems.Add(await CreateVerifiedOrderItemAsync(item, cancellationToken));
         }
 
-        await _orderRepository.ReplaceItemsAsync(order.Id, orderItems, cancellationToken);
-        order.Items = orderItems;
-
         order.PickupDateTime = request.PickupDateTime;
         order.Location = request.Location;
         order.CustomerName = request.CustomerName;
@@ -112,8 +109,8 @@ internal sealed class OrderService : IOrderService
         order.Phone = request.Phone;
         order.Message = request.Message;
         order.Status = request.Status;
-        order.Total = CalculateTotal(order.Items);
-        order.TaxAmount = CalculateVatBreakdown(order.Items).Sum(v => v.TaxAmount);
+        order.Total = CalculateTotal(orderItems);
+        order.TaxAmount = CalculateVatBreakdown(orderItems).Sum(v => v.TaxAmount);
 
         order.PaidAt = paidAt;
         order.PaymentMethod = paymentMethod;
@@ -127,7 +124,7 @@ internal sealed class OrderService : IOrderService
         order.InternalNotificationSentAt = internalNotificationSentAt;
         order.CreatedAt = createdAt;
 
-        await _orderRepository.UpdateAsync(order, cancellationToken);
+        await _orderRepository.SaveOrderUpdateAsync(order, orderItems, cancellationToken);
         return MapToDto(order);
     }
 
