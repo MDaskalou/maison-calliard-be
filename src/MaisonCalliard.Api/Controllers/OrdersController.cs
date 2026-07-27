@@ -67,6 +67,11 @@ public sealed class OrdersController : ControllerBase
         {
             return BadRequest(new { title = ex.Message });
         }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Order update failed for order {OrderId}.", id);
+            throw;
+        }
     }
 
     [Authorize(Roles = "admin")]

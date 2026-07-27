@@ -41,9 +41,28 @@ internal sealed class OrderRepository : IOrderRepository
         await _context.SaveChangesAsync(cancellationToken);
     }
 
+    public async Task ReplaceItemsAsync(Guid orderId, IReadOnlyList<CartItem> items, CancellationToken cancellationToken = default)
+    {
+        var existingItems = await _context.CartItems
+            .Where(item => item.OrderId == orderId)
+            .ToListAsync(cancellationToken);
+
+        _context.CartItems.RemoveRange(existingItems);
+
+        foreach (var item in items)
+        {
+            item.OrderId = orderId;
+            _context.CartItems.Add(item);
+        }
+    }
+
     public async Task UpdateAsync(Order order, CancellationToken cancellationToken = default)
     {
-        _context.Orders.Update(order);
+        if (_context.Entry(order).State == EntityState.Detached)
+        {
+            _context.Orders.Update(order);
+        }
+
         await _context.SaveChangesAsync(cancellationToken);
     }
 

@@ -102,12 +102,8 @@ internal sealed class OrderService : IOrderService
             orderItems.Add(await CreateVerifiedOrderItemAsync(item, cancellationToken));
         }
 
-        order.Items.Clear();
-        foreach (var item in orderItems)
-        {
-            item.OrderId = order.Id;
-            order.Items.Add(item);
-        }
+        await _orderRepository.ReplaceItemsAsync(order.Id, orderItems, cancellationToken);
+        order.Items = orderItems;
 
         order.PickupDateTime = request.PickupDateTime;
         order.Location = request.Location;
