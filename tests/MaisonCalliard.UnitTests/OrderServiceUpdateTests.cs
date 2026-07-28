@@ -103,6 +103,73 @@ public sealed class OrderServiceUpdateTests
     }
 
     [Fact]
+    public async Task UpdateAsync_WhenAddonOmitsCartId_GeneratesCartIdAndPersistsUnpaidFlag()
+    {
+        var order = CreatePaidOrder();
+        _orderRepositoryMock
+            .Setup(r => r.GetByIdAsync(order.Id, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(order);
+
+        Order? savedOrder = null;
+        _orderRepositoryMock
+            .Setup(r => r.SaveOrderUpdateAsync(It.IsAny<Order>(), It.IsAny<IReadOnlyList<CartItem>>(), It.IsAny<CancellationToken>()))
+            .Callback<Order, IReadOnlyList<CartItem>, CancellationToken>((updatedOrder, items, _) =>
+            {
+                updatedOrder.Items.Clear();
+                foreach (var item in items)
+                {
+                    updatedOrder.Items.Add(item);
+                }
+
+                savedOrder = updatedOrder;
+            })
+            .Returns(Task.CompletedTask);
+
+        var request = new UpdateOrderRequest
+        {
+            Status = OrderStatus.Paid,
+            PickupDateTime = order.PickupDateTime,
+            Location = order.Location,
+            CustomerName = order.CustomerName,
+            Email = order.Email,
+            Phone = order.Phone,
+            Message = order.Message,
+            Items =
+            [
+                new CartItemDto
+                {
+                    CartId = "existing-cart-id-1",
+                    ProductId = _cakeProductId.ToString(),
+                    OptionLabel = "8 bitar",
+                    Quantity = 1,
+                    IsPaid = true
+                },
+                new CartItemDto
+                {
+                    ProductId = _croissantProductId.ToString(),
+                    OptionLabel = "1 styck",
+                    Quantity = 1,
+                    IsPaid = false
+                }
+            ]
+        };
+
+        var result = await _sut.UpdateAsync(order.Id, request);
+
+        savedOrder.Should().NotBeNull();
+        savedOrder!.Items.Should().HaveCount(2);
+        savedOrder.Items.Single(i => i.CartId == "existing-cart-id-1").IsPaid.Should().BeTrue();
+
+        var addon = savedOrder.Items.Single(i => i.CartId != "existing-cart-id-1");
+        addon.CartId.Should().NotBeNullOrWhiteSpace();
+        addon.IsPaid.Should().BeFalse();
+        addon.ProductId.Should().Be(_croissantProductId.ToString());
+
+        result.Items.Should().HaveCount(2);
+        result.Items.Single(i => i.CartId != "existing-cart-id-1").IsPaid.Should().BeFalse();
+    }
+
+    [Fact]
     public async Task UpdateAsync_WhenItemOmitsIsPaid_TreatsAsPaid()
     {
         var order = CreatePaidOrder();

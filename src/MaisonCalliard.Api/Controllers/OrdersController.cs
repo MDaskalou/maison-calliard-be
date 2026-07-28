@@ -63,6 +63,11 @@ public sealed class OrdersController : ControllerBase
         {
             return NotFound();
         }
+        catch (OrderConcurrencyException ex)
+        {
+            _logger.LogWarning(ex, "Order update conflict for order {OrderId}.", id);
+            return Conflict(new { title = ex.Message });
+        }
         catch (ArgumentException ex)
         {
             return BadRequest(new { title = ex.Message });

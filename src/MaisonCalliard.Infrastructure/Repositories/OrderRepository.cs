@@ -1,3 +1,4 @@
+using MaisonCalliard.Application.Orders;
 using MaisonCalliard.Domain.Entities;
 using MaisonCalliard.Domain.Enums;
 using MaisonCalliard.Domain.Repositories;
@@ -48,19 +49,86 @@ internal sealed class OrderRepository : IOrderRepository
             throw new InvalidOperationException("Order must be tracked before it can be updated.");
         }
 
-        if (order.Items.Count > 0)
+        SyncOrderItems(order, items);
+
+        try
         {
-            _context.CartItems.RemoveRange(order.Items.ToList());
-            order.Items.Clear();
+            await _context.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateConcurrencyException ex)
+        {
+            throw new OrderConcurrencyException(
+                "Ordern har ändrats eller tagits bort av en annan begäran. Ladda om och försök igen.",
+                ex);
+        }
+    }
+
+    private void SyncOrderItems(Order order, IReadOnlyList<CartItem> items)
+    {
+        var existingByCartId = order.Items
+            .Where(i => !string.IsNullOrWhiteSpace(i.CartId))
+            .GroupBy(i => i.CartId, StringComparer.Ordinal)
+            .ToDictionary(g => g.Key, g => g.First(), StringComparer.Ordinal);
+
+        var keptCartIds = new HashSet<string>(StringComparer.Ordinal);
+
+        foreach (var incoming in items)
+        {
+            if (!string.IsNullOrWhiteSpace(incoming.CartId)
+                && existingByCartId.TryGetValue(incoming.CartId, out var existing))
+            {
+                existing.ProductId = incoming.ProductId;
+                existing.Name = incoming.Name;
+                existing.ImageUrl = incoming.ImageUrl;
+                existing.OptionLabel = incoming.OptionLabel;
+                existing.Price = incoming.Price;
+                existing.Quantity = incoming.Quantity;
+                existing.TaxRate = incoming.TaxRate;
+                existing.IsPaid = incoming.IsPaid;
+                keptCartIds.Add(existing.CartId);
+                continue;
+            }
+
+            // Always create a new tracked instance for inserts. Reusing detached
+            // payload entities (or calling Update on them) can mark them Modified
+            // and trigger DbUpdateConcurrencyException on SaveChanges.
+            var newItem = new CartItem
+            {
+                Id = Guid.NewGuid(),
+                OrderId = order.Id,
+                CartId = string.IsNullOrWhiteSpace(incoming.CartId)
+                    ? Guid.NewGuid().ToString("N")
+                    : incoming.CartId.Trim(),
+                ProductId = incoming.ProductId,
+                Name = incoming.Name,
+                ImageUrl = incoming.ImageUrl,
+                OptionLabel = incoming.OptionLabel,
+                Price = incoming.Price,
+                Quantity = incoming.Quantity,
+                TaxRate = incoming.TaxRate,
+                IsPaid = incoming.IsPaid
+            };
+
+            // DbSet.Add guarantees Insert; navigation Add alone can leave client-keyed
+            // entities as Modified when defaults/store config confuse the tracker.
+            _context.CartItems.Add(newItem);
+            if (!order.Items.Contains(newItem))
+            {
+                order.Items.Add(newItem);
+            }
+
+            keptCartIds.Add(newItem.CartId);
         }
 
-        foreach (var item in items)
-        {
-            item.OrderId = order.Id;
-            order.Items.Add(item);
-        }
+        var toRemove = order.Items
+            .Where(i => !keptCartIds.Contains(i.CartId))
+            .ToList();
 
-        await _context.SaveChangesAsync(cancellationToken);
+        foreach (var item in toRemove)
+        {
+            order.Items.Remove(item);
+            _context.CartItems.Remove(item);
+        }
     }
 
     public async Task UpdateAsync(Order order, CancellationToken cancellationToken = default)

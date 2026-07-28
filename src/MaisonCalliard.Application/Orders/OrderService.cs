@@ -292,7 +292,7 @@ internal sealed class OrderService : IOrderService
         return new CartItem
         {
             Id = Guid.NewGuid(),
-            CartId = item.CartId,
+            CartId = string.IsNullOrWhiteSpace(item.CartId) ? Guid.NewGuid().ToString("N") : item.CartId.Trim(),
             ProductId = product.Id.ToString(),
             Name = string.IsNullOrWhiteSpace(product.Name.Se) ? product.Name.En : product.Name.Se,
             ImageUrl = product.ImageUrl,
