@@ -36,8 +36,32 @@ public static class DependencyInjection
         configuration.GetSection(ImageUploadOptions.SectionName).Bind(imageOptions);
         services.AddSingleton(imageOptions);
         services.AddSingleton<ImageProcessor>();
-        services.AddSingleton<IFileStorageService>(provider =>
-            new LocalFileStorageService(uploadsPath, baseUrl, provider.GetRequiredService<ImageProcessor>()));
+
+        var supabaseOptions = new SupabaseStorageOptions();
+        configuration.GetSection(SupabaseStorageOptions.SectionName).Bind(supabaseOptions);
+        services.Configure<SupabaseStorageOptions>(configuration.GetSection(SupabaseStorageOptions.SectionName));
+
+        if (supabaseOptions.IsConfigured)
+        {
+            services.AddHttpClient("SupabaseStorage", client =>
+            {
+                client.DefaultRequestHeaders.Authorization =
+                    new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", supabaseOptions.ServiceRoleKey);
+            });
+
+            services.AddSingleton<IFileStorageService>(provider =>
+                new SupabaseStorageService(
+                    provider.GetRequiredService<IHttpClientFactory>().CreateClient("SupabaseStorage"),
+                    provider.GetRequiredService<Microsoft.Extensions.Options.IOptions<SupabaseStorageOptions>>(),
+                    provider.GetRequiredService<ImageProcessor>(),
+                    provider.GetRequiredService<Microsoft.Extensions.Logging.ILogger<SupabaseStorageService>>()));
+        }
+        else
+        {
+            services.AddSingleton<IFileStorageService>(provider =>
+                new LocalFileStorageService(uploadsPath, baseUrl, provider.GetRequiredService<ImageProcessor>()));
+        }
+
         services.AddScoped<IExistingImageOptimizationService>(provider =>
             new ExistingImageOptimizationService(
                 provider.GetRequiredService<AppDbContext>(),

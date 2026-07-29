@@ -2,7 +2,7 @@ using MaisonCalliard.Application.Files;
 
 namespace MaisonCalliard.Infrastructure.Services;
 
-// TODO: Replace with a real blob storage implementation (e.g. Azure Blob Storage).
+// Used when Supabase Storage is not configured (local development).
 internal sealed class LocalFileStorageService : IFileStorageService
 {
     private readonly string _uploadPath;

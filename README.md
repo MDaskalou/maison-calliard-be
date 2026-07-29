@@ -55,12 +55,39 @@ Alla nya bilder EXIF-roteras, skalas proportionerligt till högst 2400 px långs
 utan uppskalning och sparas som versionsunik lossy WebP. Kvaliteten justeras från
 82 ned till den konfigurerade kvalitetsgränsen för att sikta på högst 200 KiB.
 Transparens bevaras. `ImageUrl` har samma betydelse som tidigare men nya URL:er
-slutar därför med `.webp`. Statiska filer under `/uploads` levereras som
-`image/webp` och med:
+slutar därför med `.webp`.
 
-```http
-Cache-Control: public, max-age=31536000, immutable
+### Supabase Storage (produktion)
+
+När `Supabase:ServiceRoleKey` är konfigurerad sparas bilder i **Supabase Storage**
+istället för lokal disk. Databasen (Supabase PostgreSQL) lagrar bara URL-strängen;
+själva filen ligger kvar i Storage även efter deploy av backend.
+
+Publika bild-URL:er ser ut så här:
+
+```txt
+https://{project-ref}.supabase.co/storage/v1/object/public/uploads/{guid}.webp
 ```
+
+**Setup i Supabase Dashboard:**
+
+1. Gå till **Storage** → skapa bucket `uploads`
+2. Sätt bucket till **Public** (så kundsidan kan ladda bilder utan inloggning)
+3. Kopiera **service_role**-nyckeln under **Project Settings → API**
+4. Sätt miljövariabler på Azure App Service:
+
+```txt
+Supabase__Url=https://{project-ref}.supabase.co
+Supabase__ServiceRoleKey={din service_role key}
+Supabase__StorageBucket=uploads
+```
+
+Utan Supabase-konfiguration faller backend tillbaka till lokal disk under
+`wwwroot/uploads` (lämpligt för lokal utveckling).
+
+**Efter att Storage är aktiverat:** ladda upp bilderna igen via admin för produkter,
+meny och nyheter. Gamla URL:er som pekar mot Azure `/uploads/...` fungerar inte
+längre förrän bilderna är uppladdade på nytt.
 
 Gränserna kan ändras under `Uploads` i `appsettings.json`: maximal filstorlek,
 bredd, höjd, pixelantal, utgående långsida, målstorlek och WebP-kvalitet. Varje
@@ -295,10 +322,18 @@ Flera origins kan anges kommaseparerat, till exempel:
 Cors__AllowedOriginsCsv=https://din-site.netlify.app,https://www.maisoncalliard.com
 ```
 
-Satt ocksa backendens publika URL sa uppladdade bildlankar och Stripe-redirects inte pekar mot localhost:
+Satt backendens publika URL sa Stripe-redirects inte pekar mot localhost:
 
 ```txt
 App__BaseUrl=https://din-backend-url
+```
+
+Satt Supabase Storage sa bilder sparas persistent (se avsnittet om bildhantering):
+
+```txt
+Supabase__Url=https://{project-ref}.supabase.co
+Supabase__ServiceRoleKey={din service_role key}
+Supabase__StorageBucket=uploads
 ```
 
 I Netlify-frontenden ska API-basens miljovariabel peka mot samma backend-URL, inte mot `localhost`.
