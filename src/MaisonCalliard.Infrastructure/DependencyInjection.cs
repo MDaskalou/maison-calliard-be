@@ -1,4 +1,5 @@
 using MaisonCalliard.Application.Files;
+using MaisonCalliard.Application.OrderRequests;
 using MaisonCalliard.Application.Payments;
 using MaisonCalliard.Application.Receipts;
 using MaisonCalliard.Domain.Repositories;
@@ -88,6 +89,22 @@ public static class DependencyInjection
                 options.OrderNotificationEmail = orderNotificationEmail;
             }
         });
+        services.Configure<OrderRequestOptions>(options =>
+        {
+            configuration.GetSection(OrderRequestOptions.SectionName).Bind(options);
+
+            var toEmail = configuration["ORDER_REQUEST_TO_EMAIL"];
+            if (!string.IsNullOrWhiteSpace(toEmail))
+            {
+                options.ToEmail = toEmail;
+            }
+
+            var fromEmail = configuration["ORDER_REQUEST_FROM_EMAIL"];
+            if (!string.IsNullOrWhiteSpace(fromEmail))
+            {
+                options.FromEmail = fromEmail;
+            }
+        });
 
         services.AddHttpClient("Resend", client =>
         {
@@ -97,6 +114,7 @@ public static class DependencyInjection
 
         services.AddScoped<IOrderReceiptSender, ResendOrderReceiptSender>();
         services.AddScoped<IOrderReceiptService, OrderReceiptService>();
+        services.AddScoped<IOrderRequestService, OrderRequestService>();
         services.AddScoped<IPaymentService, StripePaymentService>();
 
         return services;

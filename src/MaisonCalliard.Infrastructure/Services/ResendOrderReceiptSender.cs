@@ -27,7 +27,12 @@ internal sealed class ResendOrderReceiptSender : IOrderReceiptSender
         _logger = logger;
     }
 
-    public async Task<bool> SendAsync(string toEmail, string subject, string html, CancellationToken cancellationToken)
+    public async Task<bool> SendAsync(
+        string toEmail,
+        string subject,
+        string html,
+        CancellationToken cancellationToken,
+        string? fromEmail = null)
     {
         if (!_resendOptions.Enabled)
         {
@@ -45,9 +50,19 @@ internal sealed class ResendOrderReceiptSender : IOrderReceiptSender
             return false;
         }
 
-        var from = string.IsNullOrWhiteSpace(_receiptOptions.FromName)
+        var resolvedFromEmail = string.IsNullOrWhiteSpace(fromEmail)
             ? _receiptOptions.FromEmail
-            : $"{_receiptOptions.FromName} <{_receiptOptions.FromEmail}>";
+            : fromEmail.Trim();
+
+        if (string.IsNullOrWhiteSpace(resolvedFromEmail))
+        {
+            _logger.LogWarning("Resend FromEmail is not configured. Receipt not sent to {Email}.", toEmail);
+            return false;
+        }
+
+        var from = string.IsNullOrWhiteSpace(_receiptOptions.FromName)
+            ? resolvedFromEmail
+            : $"{_receiptOptions.FromName} <{resolvedFromEmail}>";
 
         var payload = new ResendEmailRequest
         {

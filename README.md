@@ -129,6 +129,33 @@ Hanterar kundens orderflöde.
 | `GET` | `/api/orders/:id` | Hämta detaljer för en specifik beställning. |
 | `PATCH` | `/api/orders/:id/status` | Uppdatera status (`pending`, `completed`, `paid`). |
 | `DELETE` | `/api/orders/:id` | Arkivera/ta bort en beställning (Admin). |
+| `POST` | `/api/orders/:orderId/receipt/resend` | Skicka om kundkvitto via Resend (Admin). |
+
+### Gallery order-request (mail, ej Stripe)
+
+Gallery sparar order via `POST /api/orders` och skickar förfrågningsmail via:
+
+| Metod | Endpoint | Beskrivning |
+| :--- | :--- | :--- |
+| `POST` | `/api/order-requests` | Skicka café-mail + kundbekräftelse (AllowAnonymous). Speglar Netlify `order-request`. |
+
+Request-body (JSON):
+
+```json
+{
+  "items": [{ "wish": "Produktnamn", "size": "Storlek - 120 kr" }],
+  "customerName": "Anna Andersson",
+  "customerEmail": "anna@example.com",
+  "customerPhone": "0701234567",
+  "pickupDate": "2026-08-01",
+  "pickupLocation": "Mölnedal",
+  "message": "Valfri text"
+}
+```
+
+Svar: `200` `{ "ok": true, "confirmationSent": true|false }` (ev. `confirmationError` om kundmailet failade), `400` validering, `500` saknad Resend/config, `502` café-mailet failade.
+
+Detta ersätter **inte** Stripe-checkout — bara Netlify Functions-mailet.
 
 ---
 
@@ -337,6 +364,25 @@ Supabase__StorageBucket=uploads
 ```
 
 I Netlify-frontenden ska API-basens miljovariabel peka mot samma backend-URL, inte mot `localhost`.
+
+### Resend (Azure App Settings)
+
+Sätt dessa på Azure App Service `maison-calliard-be` (inga secrets i git). Domän/avsändare måste vara verifierad i Resend.
+
+```txt
+Resend__ApiKey=re_...
+Resend__Enabled=true
+ORDER_REQUEST_TO_EMAIL=info@maisoncaillard.com
+ORDER_REQUEST_FROM_EMAIL=info@maisoncaillard.com
+ORDER_NOTIFICATION_EMAIL=info@maisoncaillard.com
+Receipt__FromEmail=info@maisoncaillard.com
+```
+
+- `ORDER_REQUEST_*` — Gallery `POST /api/order-requests` (café + kundbekräftelse)
+- `Receipt__*` / `ORDER_NOTIFICATION_EMAIL` — betalda orderkvitton + intern paid-order-notifiering
+- Admin omskick: `POST /api/orders/{orderId}/receipt/resend` (samma Resend-pipeline)
+
+Se även [docs/azure-resend-settings.md](docs/azure-resend-settings.md) för Azure CLI-exempel.
 
 ### Orderbekräftelse (Resend)
 

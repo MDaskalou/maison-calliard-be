@@ -50,7 +50,12 @@ public sealed class OrderReceiptServiceResendTests
             .Setup(r => r.GetByIdAsync(order.Id, It.IsAny<CancellationToken>()))
             .ReturnsAsync(order);
         _senderMock
-            .Setup(s => s.SendAsync(cafeEmail, It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .Setup(s => s.SendAsync(
+                cafeEmail,
+                It.IsAny<string>(),
+                It.IsAny<string>(),
+                It.IsAny<CancellationToken>(),
+                It.IsAny<string?>()))
             .ReturnsAsync(true);
 
         await sut.TrySendReceiptAsync(order.Id);
@@ -62,14 +67,16 @@ public sealed class OrderReceiptServiceResendTests
                 cafeEmail,
                 It.Is<string>(subject => subject.Contains("Orderbekr")),
                 It.Is<string>(html => html.Contains("Kundkopia") && html.Contains("Chokladtarta")),
-                It.IsAny<CancellationToken>()),
+                It.IsAny<CancellationToken>(),
+                It.IsAny<string?>()),
             Times.Once);
         _senderMock.Verify(
             s => s.SendAsync(
                 cafeEmail,
                 It.Is<string>(subject => subject.Contains("Ny best")),
                 It.Is<string>(html => html.Contains("Anna Test") && html.Contains("anna@example.com")),
-                It.IsAny<CancellationToken>()),
+                It.IsAny<CancellationToken>(),
+                It.IsAny<string?>()),
             Times.Once);
         _orderRepositoryMock.Verify(r => r.UpdateAsync(order, It.IsAny<CancellationToken>()), Times.Once);
     }
@@ -85,7 +92,12 @@ public sealed class OrderReceiptServiceResendTests
             .Setup(r => r.GetByIdAsync(order.Id, It.IsAny<CancellationToken>()))
             .ReturnsAsync(order);
         _senderMock
-            .Setup(s => s.SendAsync(order.Email, It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .Setup(s => s.SendAsync(
+                order.Email,
+                It.IsAny<string>(),
+                It.IsAny<string>(),
+                It.IsAny<CancellationToken>(),
+                It.IsAny<string?>()))
             .ReturnsAsync(true);
 
         await _sut.ResendReceiptAsync(order.Id);
@@ -98,7 +110,8 @@ public sealed class OrderReceiptServiceResendTests
                 order.Email,
                 It.Is<string>(subject => subject.Contains(shortOrderId)),
                 It.Is<string>(html => html.Contains(order.ReceiptNumber!) && html.Contains("Chokladtarta")),
-                It.IsAny<CancellationToken>()),
+                It.IsAny<CancellationToken>(),
+                It.IsAny<string?>()),
             Times.Once);
         _orderRepositoryMock.Verify(r => r.UpdateAsync(order, It.IsAny<CancellationToken>()), Times.Once);
     }
@@ -115,7 +128,12 @@ public sealed class OrderReceiptServiceResendTests
 
         await act.Should().ThrowAsync<KeyNotFoundException>();
         _senderMock.Verify(
-            s => s.SendAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()),
+            s => s.SendAsync(
+                It.IsAny<string>(),
+                It.IsAny<string>(),
+                It.IsAny<string>(),
+                It.IsAny<CancellationToken>(),
+                It.IsAny<string?>()),
             Times.Never);
     }
 
@@ -134,7 +152,12 @@ public sealed class OrderReceiptServiceResendTests
         await act.Should().ThrowAsync<InvalidOperationException>()
             .WithMessage("Ordern saknar e-postadress.");
         _senderMock.Verify(
-            s => s.SendAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()),
+            s => s.SendAsync(
+                It.IsAny<string>(),
+                It.IsAny<string>(),
+                It.IsAny<string>(),
+                It.IsAny<CancellationToken>(),
+                It.IsAny<string?>()),
             Times.Never);
     }
 
@@ -147,7 +170,12 @@ public sealed class OrderReceiptServiceResendTests
             .Setup(r => r.GetByIdAsync(order.Id, It.IsAny<CancellationToken>()))
             .ReturnsAsync(order);
         _senderMock
-            .Setup(s => s.SendAsync(order.Email, It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .Setup(s => s.SendAsync(
+                order.Email,
+                It.IsAny<string>(),
+                It.IsAny<string>(),
+                It.IsAny<CancellationToken>(),
+                It.IsAny<string?>()))
             .ReturnsAsync(false);
 
         var act = async () => await _sut.ResendReceiptAsync(order.Id);

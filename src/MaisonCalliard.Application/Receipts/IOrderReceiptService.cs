@@ -15,7 +15,12 @@ public interface IOrderReceiptService
 
 public interface IOrderReceiptSender
 {
-    Task<bool> SendAsync(string toEmail, string subject, string html, CancellationToken cancellationToken);
+    Task<bool> SendAsync(
+        string toEmail,
+        string subject,
+        string html,
+        CancellationToken cancellationToken,
+        string? fromEmail = null);
 }
 
 public sealed class OrderReceiptDeliveryException : Exception
