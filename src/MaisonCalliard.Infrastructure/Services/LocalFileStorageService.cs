@@ -42,8 +42,23 @@ internal sealed class LocalFileStorageService : IFileStorageService
 
     public Task DeleteAsync(string fileUrl, CancellationToken cancellationToken = default)
     {
-        var fileName = Path.GetFileName(new Uri(fileUrl).LocalPath);
-        var filePath = Path.Combine(_uploadPath, fileName);
+        if (string.IsNullOrWhiteSpace(fileUrl))
+        {
+            return Task.CompletedTask;
+        }
+
+        var fileName = TryGetFileName(fileUrl);
+        if (string.IsNullOrWhiteSpace(fileName))
+        {
+            return Task.CompletedTask;
+        }
+
+        var filePath = Path.GetFullPath(Path.Combine(_uploadPath, fileName));
+        var uploadRoot = Path.GetFullPath(_uploadPath).TrimEnd(Path.DirectorySeparatorChar);
+        if (!string.Equals(Path.GetDirectoryName(filePath), uploadRoot, StringComparison.OrdinalIgnoreCase))
+        {
+            return Task.CompletedTask;
+        }
 
         if (File.Exists(filePath))
         {
@@ -51,5 +66,18 @@ internal sealed class LocalFileStorageService : IFileStorageService
         }
 
         return Task.CompletedTask;
+    }
+
+    private static string? TryGetFileName(string fileUrl)
+    {
+        if (Uri.TryCreate(fileUrl, UriKind.Absolute, out var absoluteUri))
+        {
+            return Path.GetFileName(absoluteUri.LocalPath);
+        }
+
+        // Relative paths (e.g. /uploads/file.webp) or bare filenames from older data.
+        var normalized = fileUrl.Replace('\\', '/');
+        var slashIndex = normalized.LastIndexOf('/');
+        return slashIndex >= 0 ? normalized[(slashIndex + 1)..] : normalized;
     }
 }

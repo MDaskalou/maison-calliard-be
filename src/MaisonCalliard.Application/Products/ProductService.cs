@@ -129,10 +129,20 @@ internal sealed class ProductService : IProductService
         var product = await _productRepository.GetByIdAsync(id, cancellationToken)
             ?? throw new KeyNotFoundException($"Product {id} not found.");
 
+        var imageUrl = product.ImageUrl;
         await _productRepository.DeleteAsync(product, cancellationToken);
-        if (!string.IsNullOrEmpty(product.ImageUrl))
+
+        // Best-effort cleanup — product is already removed from the database.
+        if (!string.IsNullOrEmpty(imageUrl))
         {
-            await _fileStorage.DeleteAsync(product.ImageUrl, cancellationToken);
+            try
+            {
+                await _fileStorage.DeleteAsync(imageUrl, cancellationToken);
+            }
+            catch
+            {
+                // Ignore storage cleanup failures so delete still succeeds for the client.
+            }
         }
     }
 
