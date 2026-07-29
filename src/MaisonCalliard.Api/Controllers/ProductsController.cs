@@ -1,5 +1,6 @@
 using MaisonCalliard.Application.Products;
 using MaisonCalliard.Application.Products.Dtos;
+using MaisonCalliard.Domain.Enums;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -17,9 +18,9 @@ public sealed class ProductsController : ControllerBase
     }
 
     [HttpGet]
-    public async Task<IActionResult> GetAll(CancellationToken cancellationToken)
+    public async Task<IActionResult> GetAll(CakeStyle? style, CancellationToken cancellationToken)
     {
-        var products = await _productService.GetAllAsync(cancellationToken);
+        var products = await _productService.GetAllAsync(style, cancellationToken);
         return Ok(products);
     }
 

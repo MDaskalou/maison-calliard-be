@@ -1,6 +1,7 @@
 using MaisonCalliard.Application.Files;
 using MaisonCalliard.Application.Products.Dtos;
 using MaisonCalliard.Domain.Entities;
+using MaisonCalliard.Domain.Enums;
 using MaisonCalliard.Domain.Repositories;
 using MaisonCalliard.Domain.ValueObjects;
 
@@ -8,7 +9,7 @@ namespace MaisonCalliard.Application.Products;
 
 public interface IProductService
 {
-    Task<IReadOnlyList<ProductDto>> GetAllAsync(CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<ProductDto>> GetAllAsync(CakeStyle? style = null, CancellationToken cancellationToken = default);
     Task<ProductDto> CreateAsync(CreateProductRequest request, Stream? imageStream, string? imageFileName, string? imageContentType, CancellationToken cancellationToken = default);
     Task<ProductDto> UpdateAsync(Guid id, UpdateProductRequest request, Stream? imageStream, string? imageFileName, string? imageContentType, CancellationToken cancellationToken = default);
     Task DeleteAsync(Guid id, CancellationToken cancellationToken = default);
@@ -26,9 +27,14 @@ internal sealed class ProductService : IProductService
         _fileStorage = fileStorage;
     }
 
-    public async Task<IReadOnlyList<ProductDto>> GetAllAsync(CancellationToken cancellationToken = default)
+    public async Task<IReadOnlyList<ProductDto>> GetAllAsync(CakeStyle? style = null, CancellationToken cancellationToken = default)
     {
         var products = await _productRepository.GetAllAsync(cancellationToken);
+        if (style is not null)
+        {
+            products = products.Where(p => p.Style == style).ToList();
+        }
+
         return products.Select(MapToDto).ToList();
     }
 
