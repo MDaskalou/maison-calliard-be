@@ -43,10 +43,14 @@ public static class DependencyInjection
 
         if (supabaseOptions.IsConfigured)
         {
+            var serviceRoleKey = supabaseOptions.ServiceRoleKey.Trim();
+
             services.AddHttpClient("SupabaseStorage", client =>
             {
+                // Supabase requires both headers; legacy service_role is a JWT that works as Bearer.
+                client.DefaultRequestHeaders.Add("apikey", serviceRoleKey);
                 client.DefaultRequestHeaders.Authorization =
-                    new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", supabaseOptions.ServiceRoleKey);
+                    new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", serviceRoleKey);
             });
 
             services.AddSingleton<IFileStorageService>(provider =>

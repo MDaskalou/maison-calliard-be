@@ -22,4 +22,14 @@ public sealed class SupabaseStorageServiceTests
     {
         SupabaseStorageService.TryGetObjectName(fileUrl).Should().BeNull();
     }
+
+    [Theory]
+    [InlineData("https://frcoybsquqfwnyofumsg.supabase.co", "https://frcoybsquqfwnyofumsg.supabase.co")]
+    [InlineData("https://frcoybsquqfwnyofumsg.supabase.co/", "https://frcoybsquqfwnyofumsg.supabase.co")]
+    [InlineData("https://frcoybsquqfwnyofumsg.supabase.co/rest/v1/", "https://frcoybsquqfwnyofumsg.supabase.co")]
+    [InlineData("https://frcoybsquqfwnyofumsg.supabase.co/rest/v1", "https://frcoybsquqfwnyofumsg.supabase.co")]
+    public void NormalizeProjectUrl_StripsApiSuffixes(string input, string expected)
+    {
+        SupabaseStorageService.NormalizeProjectUrl(input).Should().Be(expected);
+    }
 }

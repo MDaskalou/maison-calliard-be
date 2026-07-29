@@ -150,6 +150,19 @@ app.Use(async (context, next) =>
             title: "Ogiltig bild",
             detail: exception.Message).ExecuteAsync(context);
     }
+    catch (InvalidOperationException exception) when (exception.Message.StartsWith("Supabase Storage", StringComparison.Ordinal))
+    {
+        if (context.Response.HasStarted)
+        {
+            throw;
+        }
+
+        context.Response.StatusCode = StatusCodes.Status400BadRequest;
+        await Results.Problem(
+            statusCode: StatusCodes.Status400BadRequest,
+            title: "Bilduppladdning misslyckades",
+            detail: exception.Message).ExecuteAsync(context);
+    }
 });
 
 var uploadContentTypes = new FileExtensionContentTypeProvider();

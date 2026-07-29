@@ -9,7 +9,7 @@ public sealed class SupabaseStorageOptions
     public string StorageBucket { get; set; } = "uploads";
 
     public bool IsConfigured =>
-        !string.IsNullOrWhiteSpace(Url) &&
-        !string.IsNullOrWhiteSpace(ServiceRoleKey) &&
-        !string.IsNullOrWhiteSpace(StorageBucket);
+        !string.IsNullOrWhiteSpace(Url?.Trim()) &&
+        !string.IsNullOrWhiteSpace(ServiceRoleKey?.Trim()) &&
+        !string.IsNullOrWhiteSpace(StorageBucket?.Trim());
 }

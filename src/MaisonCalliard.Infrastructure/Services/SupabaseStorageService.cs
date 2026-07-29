@@ -12,8 +12,12 @@ internal sealed class SupabaseStorageService : IFileStorageService
     private readonly SupabaseStorageOptions _options;
     private readonly ImageProcessor _imageProcessor;
     private readonly ILogger<SupabaseStorageService> _logger;
+    private readonly string _projectUrl;
+    private readonly string _bucket;
     private readonly string _storageBaseUrl;
     private readonly string _publicBaseUrl;
+    private readonly SemaphoreSlim _bucketLock = new(1, 1);
+    private bool _bucketReady;
 
     public SupabaseStorageService(
         HttpClient httpClient,
@@ -26,9 +30,10 @@ internal sealed class SupabaseStorageService : IFileStorageService
         _imageProcessor = imageProcessor;
         _logger = logger;
 
-        var projectUrl = _options.Url.TrimEnd('/');
-        _storageBaseUrl = $"{projectUrl}/storage/v1/object";
-        _publicBaseUrl = $"{projectUrl}/storage/v1/object/public/{_options.StorageBucket}";
+        _projectUrl = NormalizeProjectUrl(_options.Url);
+        _bucket = _options.StorageBucket.Trim();
+        _storageBaseUrl = $"{_projectUrl}/storage/v1/object";
+        _publicBaseUrl = $"{_projectUrl}/storage/v1/object/public/{_bucket}";
     }
 
     public async Task<string> SaveAsync(
@@ -37,9 +42,11 @@ internal sealed class SupabaseStorageService : IFileStorageService
         string contentType,
         CancellationToken cancellationToken = default)
     {
+        await EnsureBucketExistsAsync(cancellationToken);
+
         var processed = await _imageProcessor.ProcessAsync(fileStream, cancellationToken);
         var objectName = $"{Guid.NewGuid():N}.webp";
-        var uploadUrl = $"{_storageBaseUrl}/{_options.StorageBucket}/{objectName}";
+        var uploadUrl = $"{_storageBaseUrl}/{_bucket}/{objectName}";
 
         using var content = new ByteArrayContent(processed.Bytes);
         content.Headers.ContentType = new MediaTypeHeaderValue("image/webp");
@@ -48,18 +55,20 @@ internal sealed class SupabaseStorageService : IFileStorageService
         {
             Content = content
         };
-        request.Headers.Add("x-upsert", "false");
+        request.Headers.TryAddWithoutValidation("x-upsert", "true");
 
         using var response = await _httpClient.SendAsync(request, cancellationToken);
         if (!response.IsSuccessStatusCode)
         {
             var body = await response.Content.ReadAsStringAsync(cancellationToken);
             _logger.LogError(
-                "Supabase upload failed for {ObjectName}: {StatusCode} {Body}",
+                "Supabase upload failed for {ObjectName} to {UploadUrl}: {StatusCode} {Body}",
                 objectName,
+                uploadUrl,
                 (int)response.StatusCode,
                 body);
-            response.EnsureSuccessStatusCode();
+            throw new InvalidOperationException(
+                $"Supabase Storage upload failed ({(int)response.StatusCode}): {body}");
         }
 
         return $"{_publicBaseUrl}/{objectName}";
@@ -78,7 +87,7 @@ internal sealed class SupabaseStorageService : IFileStorageService
             return;
         }
 
-        var deleteUrl = $"{_storageBaseUrl}/{_options.StorageBucket}/{objectName}";
+        var deleteUrl = $"{_storageBaseUrl}/{_bucket}/{objectName}";
         using var response = await _httpClient.DeleteAsync(deleteUrl, cancellationToken);
         if (response.IsSuccessStatusCode || response.StatusCode == System.Net.HttpStatusCode.NotFound)
         {
@@ -91,6 +100,85 @@ internal sealed class SupabaseStorageService : IFileStorageService
             objectName,
             (int)response.StatusCode,
             body);
+    }
+
+    private async Task EnsureBucketExistsAsync(CancellationToken cancellationToken)
+    {
+        if (_bucketReady)
+        {
+            return;
+        }
+
+        await _bucketLock.WaitAsync(cancellationToken);
+        try
+        {
+            if (_bucketReady)
+            {
+                return;
+            }
+
+            var getUrl = $"{_projectUrl}/storage/v1/bucket/{_bucket}";
+            using (var getResponse = await _httpClient.GetAsync(getUrl, cancellationToken))
+            {
+                if (getResponse.IsSuccessStatusCode)
+                {
+                    _bucketReady = true;
+                    return;
+                }
+            }
+
+            using var createContent = new StringContent(
+                $"{{\"id\":\"{_bucket}\",\"name\":\"{_bucket}\",\"public\":true}}",
+                System.Text.Encoding.UTF8,
+                "application/json");
+            using var createResponse = await _httpClient.PostAsync(
+                $"{_projectUrl}/storage/v1/bucket",
+                createContent,
+                cancellationToken);
+
+            if (createResponse.IsSuccessStatusCode)
+            {
+                _logger.LogInformation("Created Supabase Storage bucket {Bucket}", _bucket);
+                _bucketReady = true;
+                return;
+            }
+
+            var body = await createResponse.Content.ReadAsStringAsync(cancellationToken);
+            // Bucket may already exist (race) or name conflict — treat as ready if message says so.
+            if ((int)createResponse.StatusCode is 409 or 400 &&
+                body.Contains("already exists", StringComparison.OrdinalIgnoreCase))
+            {
+                _bucketReady = true;
+                return;
+            }
+
+            _logger.LogError(
+                "Failed to create Supabase bucket {Bucket}: {StatusCode} {Body}",
+                _bucket,
+                (int)createResponse.StatusCode,
+                body);
+            throw new InvalidOperationException(
+                $"Supabase Storage bucket '{_bucket}' is missing and could not be created ({(int)createResponse.StatusCode}): {body}");
+        }
+        finally
+        {
+            _bucketLock.Release();
+        }
+    }
+
+    internal static string NormalizeProjectUrl(string url)
+    {
+        var normalized = url.Trim().TrimEnd('/');
+        if (normalized.EndsWith("/rest/v1", StringComparison.OrdinalIgnoreCase))
+        {
+            normalized = normalized[..^"/rest/v1".Length].TrimEnd('/');
+        }
+        else if (normalized.EndsWith("/storage/v1", StringComparison.OrdinalIgnoreCase))
+        {
+            normalized = normalized[..^"/storage/v1".Length].TrimEnd('/');
+        }
+
+        return normalized;
     }
 
     internal static string? TryGetObjectName(string fileUrl)
