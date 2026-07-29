@@ -49,7 +49,7 @@ internal sealed class ProductService : IProductService
         {
             Id = Guid.NewGuid(),
             Name = new LocalizedText { Se = request.NameSe, En = request.NameEn },
-            Description = new LocalizedText { Se = request.DescriptionSe, En = request.DescriptionEn },
+            Description = new LocalizedText { Se = request.DescriptionSe ?? string.Empty, En = request.DescriptionEn ?? string.Empty },
             Category = request.Category,
             Style = request.Style,
             ImageUrl = imageUrl,
@@ -182,7 +182,7 @@ internal sealed class ProductService : IProductService
     private static void ApplyUpdate(Product product, UpdateProductRequest request)
     {
         product.Name = new LocalizedText { Se = request.NameSe, En = request.NameEn };
-        product.Description = new LocalizedText { Se = request.DescriptionSe, En = request.DescriptionEn };
+        product.Description = new LocalizedText { Se = request.DescriptionSe ?? string.Empty, En = request.DescriptionEn ?? string.Empty };
         product.Category = request.Category;
         product.Style = request.Style;
         product.IsAvailable = request.IsAvailable;

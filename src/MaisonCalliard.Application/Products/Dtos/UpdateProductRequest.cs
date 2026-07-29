@@ -6,8 +6,8 @@ public sealed class UpdateProductRequest
 {
     public string NameSe { get; set; } = string.Empty;
     public string NameEn { get; set; } = string.Empty;
-    public string DescriptionSe { get; set; } = string.Empty;
-    public string DescriptionEn { get; set; } = string.Empty;
+    public string? DescriptionSe { get; set; }
+    public string? DescriptionEn { get; set; }
     public ProductCategory Category { get; set; }
     public CakeStyle? Style { get; set; }
     public bool IsAvailable { get; set; } = true;
