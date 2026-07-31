@@ -17,4 +17,5 @@ public sealed class MenuItem
     public bool? BakedOnSite { get; set; }
     public bool? BakedThisMorning { get; set; }
     public double? TaxRate { get; set; }
+    public int SortOrder { get; set; }
 }

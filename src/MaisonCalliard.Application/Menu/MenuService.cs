@@ -11,6 +11,7 @@ public interface IMenuService
     Task<IReadOnlyList<MenuItemDto>> GetAllAsync(CancellationToken cancellationToken = default);
     Task<MenuItemDto> CreateAsync(CreateMenuItemRequest request, Stream? imageStream, string? imageFileName, string? imageContentType, CancellationToken cancellationToken = default);
     Task<MenuItemDto> UpdateAsync(Guid id, UpdateMenuItemRequest request, Stream? imageStream, string? imageFileName, string? imageContentType, CancellationToken cancellationToken = default);
+    Task ReorderAsync(ReorderMenuItemsRequest request, CancellationToken cancellationToken = default);
     Task DeleteAsync(Guid id, CancellationToken cancellationToken = default);
 }
 
@@ -44,6 +45,9 @@ internal sealed class MenuService : IMenuService
             imageUrl = await _fileStorage.SaveAsync(imageStream, imageFileName, imageContentType, cancellationToken);
         }
 
+        var maxSortOrder = await _menuRepository.GetMaxSortOrderAsync(cancellationToken);
+        var sortOrder = request.SortOrder ?? (maxSortOrder is null ? 0 : maxSortOrder.Value + 1);
+
         var item = new MenuItem
         {
             Id = Guid.NewGuid(),
@@ -57,7 +61,8 @@ internal sealed class MenuService : IMenuService
             IsAvailable = request.IsAvailable,
             BakedOnSite = request.BakedOnSite,
             BakedThisMorning = request.BakedThisMorning,
-            TaxRate = request.TaxRate
+            TaxRate = request.TaxRate,
+            SortOrder = sortOrder
         };
 
         try
@@ -119,6 +124,34 @@ internal sealed class MenuService : IMenuService
         return MapToDto(item);
     }
 
+    public async Task ReorderAsync(ReorderMenuItemsRequest request, CancellationToken cancellationToken = default)
+    {
+        var orderedIds = request.OrderedIds ?? [];
+        if (orderedIds.Count == 0)
+        {
+            return;
+        }
+
+        if (orderedIds.Distinct().Count() != orderedIds.Count)
+        {
+            throw new ArgumentException("orderedIds contains duplicate ids.");
+        }
+
+        var items = await _menuRepository.GetByIdsAsync(orderedIds, cancellationToken);
+        if (items.Count != orderedIds.Count)
+        {
+            throw new ArgumentException("One or more menu item ids are invalid.");
+        }
+
+        var itemsById = items.ToDictionary(i => i.Id);
+        for (var i = 0; i < orderedIds.Count; i++)
+        {
+            itemsById[orderedIds[i]].SortOrder = i;
+        }
+
+        await _menuRepository.UpdateRangeAsync(items, cancellationToken);
+    }
+
     public async Task DeleteAsync(Guid id, CancellationToken cancellationToken = default)
     {
         var item = await _menuRepository.GetByIdAsync(id, cancellationToken)
@@ -146,7 +179,8 @@ internal sealed class MenuService : IMenuService
             IsAvailable = item.IsAvailable,
             BakedOnSite = item.BakedOnSite,
             BakedThisMorning = item.BakedThisMorning,
-            TaxRate = item.TaxRate
+            TaxRate = item.TaxRate,
+            SortOrder = item.SortOrder
         };
     }
 
@@ -159,5 +193,10 @@ internal sealed class MenuService : IMenuService
         item.BakedOnSite = request.BakedOnSite;
         item.BakedThisMorning = request.BakedThisMorning;
         item.TaxRate = request.TaxRate;
+
+        if (request.SortOrder is not null)
+        {
+            item.SortOrder = request.SortOrder.Value;
+        }
     }
 }

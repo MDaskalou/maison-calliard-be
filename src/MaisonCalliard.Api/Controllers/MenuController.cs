@@ -43,6 +43,21 @@ public sealed class MenuController : ControllerBase
     }
 
     [Authorize(Roles = "admin")]
+    [HttpPut("reorder")]
+    public async Task<IActionResult> Reorder([FromBody] ReorderMenuItemsRequest request, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await _menuService.ReorderAsync(request, cancellationToken);
+            return NoContent();
+        }
+        catch (ArgumentException ex)
+        {
+            return BadRequest(new { title = ex.Message });
+        }
+    }
+
+    [Authorize(Roles = "admin")]
     [HttpPut("{id:guid}")]
     public async Task<IActionResult> Update(Guid id, [FromForm] UpdateMenuItemRequest request, IFormFile? image, CancellationToken cancellationToken)
     {
