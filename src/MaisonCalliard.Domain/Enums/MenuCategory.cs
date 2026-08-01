@@ -5,5 +5,6 @@ public enum MenuCategory
     Sandwich,
     Pastry,
     Bread,
-    Drink
+    Drink,
+    Croissant
 }

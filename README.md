@@ -231,7 +231,7 @@ public class NewsItem
 
 ### 2. MenuItem
 ```csharp
-public enum MenuCategory { Sandwich, Pastry, Bread }
+public enum MenuCategory { Sandwich, Pastry, Bread, Drink, Croissant }
 
 public class MenuItem 
 {
