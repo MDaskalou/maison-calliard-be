@@ -10,6 +10,7 @@ public sealed class ProductDto
     public ProductCategory Category { get; set; }
     public CakeStyle? Style { get; set; }
     public string ImageUrl { get; set; } = string.Empty;
+    public string ImagePosition { get; set; } = "50% 50%";
     public bool IsAvailable { get; set; }
     public bool IsVegan { get; set; }
     public bool IsSeason { get; set; }

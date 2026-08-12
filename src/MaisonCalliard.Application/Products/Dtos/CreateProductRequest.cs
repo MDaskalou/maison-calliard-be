@@ -10,6 +10,7 @@ public sealed class CreateProductRequest
     public string? DescriptionEn { get; set; }
     public ProductCategory Category { get; set; }
     public CakeStyle? Style { get; set; }
+    public string? ImagePosition { get; set; }
     public bool IsAvailable { get; set; } = true;
     public bool IsVegan { get; set; }
     public bool IsSeason { get; set; }

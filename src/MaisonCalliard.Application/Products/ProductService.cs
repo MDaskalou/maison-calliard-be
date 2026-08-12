@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using MaisonCalliard.Application.Files;
 using MaisonCalliard.Application.Products.Dtos;
 using MaisonCalliard.Domain.Entities;
@@ -18,6 +19,9 @@ public interface IProductService
 
 internal sealed class ProductService : IProductService
 {
+    private static readonly Regex ImagePositionRegex = new(@"^\d{1,3}%\s+\d{1,3}%$", RegexOptions.Compiled);
+    private const string DefaultImagePosition = "50% 50%";
+
     private readonly IProductRepository _productRepository;
     private readonly IFileStorageService _fileStorage;
 
@@ -59,6 +63,7 @@ internal sealed class ProductService : IProductService
             Category = request.Category,
             Style = request.Style,
             ImageUrl = imageUrl,
+            ImagePosition = ResolveImagePositionForCreate(request.ImagePosition),
             IsAvailable = request.IsAvailable,
             IsVegan = request.IsVegan,
             IsSeason = request.IsSeason,
@@ -172,6 +177,7 @@ internal sealed class ProductService : IProductService
             Category = product.Category,
             Style = product.Style,
             ImageUrl = product.ImageUrl,
+            ImagePosition = product.ImagePosition,
             IsAvailable = product.IsAvailable,
             IsVegan = product.IsVegan,
             IsSeason = product.IsSeason,
@@ -201,5 +207,52 @@ internal sealed class ProductService : IProductService
         product.Allergies = request.Allergies;
         product.PriceOptions = request.PriceOptions.Select(p => new PriceOption { Label = p.Label, Price = p.Price }).ToList();
         product.TaxRate = request.TaxRate;
+
+        if (!string.IsNullOrWhiteSpace(request.ImagePosition))
+        {
+            product.ImagePosition = ValidateImagePosition(request.ImagePosition);
+        }
+    }
+
+    private static string ResolveImagePositionForCreate(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return DefaultImagePosition;
+        }
+
+        return ValidateImagePosition(value);
+    }
+
+    private static string ValidateImagePosition(string value)
+    {
+        var trimmed = value.Trim();
+        if (!ImagePositionRegex.IsMatch(trimmed))
+        {
+            throw new ArgumentException("ImagePosition must be a CSS object-position percentage pair, e.g. \"50% 50%\".");
+        }
+
+        var parts = trimmed.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length != 2
+            || !TryParsePercent(parts[0], out var x)
+            || !TryParsePercent(parts[1], out var y)
+            || x is < 0 or > 100
+            || y is < 0 or > 100)
+        {
+            throw new ArgumentException("ImagePosition percentages must be between 0 and 100.");
+        }
+
+        return $"{x}% {y}%";
+    }
+
+    private static bool TryParsePercent(string token, out int percent)
+    {
+        percent = 0;
+        if (!token.EndsWith('%'))
+        {
+            return false;
+        }
+
+        return int.TryParse(token.AsSpan(0, token.Length - 1), out percent);
     }
 }

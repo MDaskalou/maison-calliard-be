@@ -262,6 +262,12 @@ namespace MaisonCalliard.Infrastructure.Migrations
                     b.Property<int>("Category")
                         .HasColumnType("integer");
 
+                    b.Property<string>("ImagePosition")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("text")
+                        .HasDefaultValue("50% 50%");
+
                     b.Property<string>("ImageUrl")
                         .IsRequired()
                         .HasColumnType("text");

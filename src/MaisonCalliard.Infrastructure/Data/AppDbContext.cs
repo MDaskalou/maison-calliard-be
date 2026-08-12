@@ -104,6 +104,7 @@ internal sealed class AppDbContext : DbContext
     private static void ConfigureProduct(ModelBuilder modelBuilder, JsonSerializerOptions jsonOptions)
     {
         modelBuilder.Entity<Product>().HasKey(p => p.Id);
+        modelBuilder.Entity<Product>().Property(p => p.ImagePosition).HasDefaultValue("50% 50%");
     }
 
     private static void ConfigureOrder(ModelBuilder modelBuilder)

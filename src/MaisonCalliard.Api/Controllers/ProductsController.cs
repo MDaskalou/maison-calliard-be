@@ -39,8 +39,15 @@ public sealed class ProductsController : ControllerBase
             contentType = image.ContentType;
         }
 
-        var result = await _productService.CreateAsync(request, stream, fileName, contentType, cancellationToken);
-        return CreatedAtAction(nameof(GetAll), new { id = result.Id }, result);
+        try
+        {
+            var result = await _productService.CreateAsync(request, stream, fileName, contentType, cancellationToken);
+            return CreatedAtAction(nameof(GetAll), new { id = result.Id }, result);
+        }
+        catch (ArgumentException ex)
+        {
+            return BadRequest(new { title = ex.Message });
+        }
     }
 
     [Authorize(Roles = "admin")]
@@ -66,6 +73,10 @@ public sealed class ProductsController : ControllerBase
         catch (KeyNotFoundException)
         {
             return NotFound();
+        }
+        catch (ArgumentException ex)
+        {
+            return BadRequest(new { title = ex.Message });
         }
     }
 
