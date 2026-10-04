@@ -67,7 +67,9 @@ internal sealed class OrderService : IOrderService
             PickupDateTime = request.PickupDateTime,
             Location = request.Location,
             CustomerName = request.CustomerName,
-            CustomerAddress = request.CustomerAddress,
+            CustomerAddress = string.IsNullOrWhiteSpace(request.CustomerAddress)
+                ? null
+                : request.CustomerAddress.Trim(),
             Email = request.Email,
             Phone = request.Phone,
             Message = request.Message,
@@ -265,11 +267,6 @@ internal sealed class OrderService : IOrderService
         if (request.Items.Count == 0)
         {
             throw new ArgumentException("At least one order item is required.");
-        }
-
-        if (string.IsNullOrWhiteSpace(request.CustomerAddress))
-        {
-            throw new ArgumentException("CustomerAddress is required.");
         }
 
         foreach (var item in request.Items)

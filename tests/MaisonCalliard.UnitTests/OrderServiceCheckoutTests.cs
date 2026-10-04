@@ -96,7 +96,7 @@ public sealed class OrderServiceCheckoutTests
         {
             PickupDateTime = order.PickupDateTime.AddHours(1),
             CustomerName = "Nytt namn",
-            CustomerAddress = order.CustomerAddress,
+            CustomerAddress = order.CustomerAddress ?? string.Empty,
             Email = order.Email,
             Phone = order.Phone,
             Message = order.Message

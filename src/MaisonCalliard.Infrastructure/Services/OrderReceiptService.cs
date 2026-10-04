@@ -202,7 +202,7 @@ internal sealed class OrderReceiptService : IOrderReceiptService
             ShortOrderId = order.Id.ToString("N")[..8].ToUpperInvariant(),
             ReceiptNumber = order.ReceiptNumber,
             CustomerName = order.CustomerName,
-            CustomerAddress = order.CustomerAddress,
+            CustomerAddress = order.CustomerAddress ?? string.Empty,
             CustomerEmail = order.Email,
             Phone = order.Phone,
             Message = order.Message,
