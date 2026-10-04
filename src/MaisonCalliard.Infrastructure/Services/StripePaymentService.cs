@@ -1,3 +1,4 @@
+using MaisonCalliard.Application.Orders;
 using MaisonCalliard.Application.Payments;
 using MaisonCalliard.Application.Payments.Dtos;
 using MaisonCalliard.Application.Receipts;
@@ -324,6 +325,96 @@ internal sealed class StripePaymentService : IPaymentService
             order.StripeSessionId,
             cancellationToken);
         return order.Id;
+    }
+
+    public async Task EnsureUnpaidCheckoutReusableAsync(
+        string? stripePaymentIntentId,
+        string? stripeSessionId,
+        string location,
+        string email,
+        bool updateReceiptEmail,
+        CancellationToken cancellationToken = default)
+    {
+        var requestOptions = new RequestOptions { ApiKey = ResolveStripeSecretKey(location) };
+        var paymentIntentId = stripePaymentIntentId;
+
+        try
+        {
+            if (string.IsNullOrWhiteSpace(paymentIntentId))
+            {
+                paymentIntentId = await ResolveOpenSessionPaymentIntentIdAsync(
+                    stripeSessionId,
+                    requestOptions,
+                    cancellationToken);
+            }
+
+            if (string.IsNullOrWhiteSpace(paymentIntentId))
+            {
+                throw new InvalidOperationException(CheckoutUpdateMessages.NotUpdatable);
+            }
+
+            var intentService = new PaymentIntentService();
+            var intent = await intentService.GetAsync(
+                paymentIntentId,
+                requestOptions: requestOptions,
+                cancellationToken: cancellationToken);
+
+            if (string.Equals(intent.Status, "succeeded", StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidOperationException(CheckoutUpdateMessages.NotUpdatable);
+            }
+
+            if (intent.Status is not ("requires_payment_method" or "requires_confirmation" or "requires_action"))
+            {
+                throw new CheckoutDraftConflictException(CheckoutUpdateMessages.NotReusable);
+            }
+
+            if (!updateReceiptEmail)
+            {
+                return;
+            }
+
+            await intentService.UpdateAsync(
+                intent.Id,
+                new PaymentIntentUpdateOptions { ReceiptEmail = email },
+                requestOptions: requestOptions,
+                cancellationToken: cancellationToken);
+        }
+        catch (StripeException ex)
+        {
+            _logger.LogWarning(ex, "Unpaid checkout PaymentIntent {PaymentIntentId} could not be reused.", paymentIntentId);
+            throw new CheckoutDraftConflictException(CheckoutUpdateMessages.NotReusable, ex);
+        }
+    }
+
+    private static async Task<string?> ResolveOpenSessionPaymentIntentIdAsync(
+        string? stripeSessionId,
+        RequestOptions requestOptions,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(stripeSessionId))
+        {
+            throw new InvalidOperationException(CheckoutUpdateMessages.NotUpdatable);
+        }
+
+        var sessionService = new SessionService();
+        var session = await sessionService.GetAsync(
+            stripeSessionId,
+            requestOptions: requestOptions,
+            cancellationToken: cancellationToken);
+
+        if (string.Equals(session.PaymentStatus, "paid", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException(CheckoutUpdateMessages.NotUpdatable);
+        }
+
+        if (!string.Equals(session.Status, "open", StringComparison.OrdinalIgnoreCase)
+            || string.IsNullOrWhiteSpace(session.PaymentIntentId))
+        {
+            throw new CheckoutDraftConflictException(CheckoutUpdateMessages.NotReusable);
+        }
+
+        return session.PaymentIntentId;
     }
 
     private async Task ActivateOrderAfterPaymentAsync(

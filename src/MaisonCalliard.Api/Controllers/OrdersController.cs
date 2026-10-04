@@ -50,6 +50,30 @@ public sealed class OrdersController : ControllerBase
         }
     }
 
+    [AllowAnonymous]
+    [HttpPut("{id:guid}/checkout")]
+    public async Task<IActionResult> UpdateCheckout(Guid id, [FromBody] UpdateCheckoutRequest request, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var result = await _orderService.UpdateCheckoutAsync(id, request, cancellationToken);
+            return Ok(result);
+        }
+        catch (KeyNotFoundException)
+        {
+            return NotFound(new { message = CheckoutUpdateMessages.NotFound });
+        }
+        catch (CheckoutDraftConflictException ex)
+        {
+            _logger.LogWarning(ex, "Checkout draft {OrderId} can no longer be reused.", id);
+            return Conflict(new { message = ex.Message });
+        }
+        catch (InvalidOperationException ex) when (ex.Message == CheckoutUpdateMessages.NotUpdatable)
+        {
+            return BadRequest(new { message = CheckoutUpdateMessages.NotUpdatable });
+        }
+    }
+
     [Authorize(Roles = "admin")]
     [HttpPut("{id:guid}")]
     public async Task<IActionResult> Update(Guid id, [FromBody] UpdateOrderRequest request, CancellationToken cancellationToken)

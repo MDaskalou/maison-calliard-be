@@ -1,4 +1,5 @@
 using MaisonCalliard.Application.Orders.Dtos;
+using MaisonCalliard.Application.Payments;
 using MaisonCalliard.Application.Receipts;
 using MaisonCalliard.Domain.Entities;
 using MaisonCalliard.Domain.Enums;
@@ -12,6 +13,7 @@ public interface IOrderService
     Task<OrderDto?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default);
     Task<OrderDto> CreateAsync(CreateOrderRequest request, CancellationToken cancellationToken = default);
     Task<OrderDto> UpdateAsync(Guid id, UpdateOrderRequest request, CancellationToken cancellationToken = default);
+    Task<OrderDto> UpdateCheckoutAsync(Guid id, UpdateCheckoutRequest request, CancellationToken cancellationToken = default);
     Task<OrderDto> UpdateStatusAsync(Guid id, UpdateOrderStatusRequest request, CancellationToken cancellationToken = default);
     Task ResendReceiptAsync(Guid id, CancellationToken cancellationToken = default);
     Task DeleteAsync(Guid id, CancellationToken cancellationToken = default);
@@ -22,15 +24,18 @@ internal sealed class OrderService : IOrderService
     private readonly IOrderRepository _orderRepository;
     private readonly IProductRepository _productRepository;
     private readonly IOrderReceiptService _orderReceiptService;
+    private readonly IPaymentService _paymentService;
 
     public OrderService(
         IOrderRepository orderRepository,
         IProductRepository productRepository,
-        IOrderReceiptService orderReceiptService)
+        IOrderReceiptService orderReceiptService,
+        IPaymentService paymentService)
     {
         _orderRepository = orderRepository;
         _productRepository = productRepository;
         _orderReceiptService = orderReceiptService;
+        _paymentService = paymentService;
     }
 
     public async Task<IReadOnlyList<OrderDto>> GetAllAsync(CancellationToken cancellationToken = default)
@@ -128,6 +133,36 @@ internal sealed class OrderService : IOrderService
         return MapToDto(order);
     }
 
+    public async Task<OrderDto> UpdateCheckoutAsync(Guid id, UpdateCheckoutRequest request, CancellationToken cancellationToken = default)
+    {
+        var order = await _orderRepository.GetByIdAsync(id, cancellationToken)
+            ?? throw new KeyNotFoundException(CheckoutUpdateMessages.NotFound);
+
+        if (!CanUpdateUnpaidCheckout(order))
+        {
+            throw new InvalidOperationException(CheckoutUpdateMessages.NotUpdatable);
+        }
+
+        var emailChanged = !string.Equals(order.Email, request.Email, StringComparison.Ordinal);
+        await _paymentService.EnsureUnpaidCheckoutReusableAsync(
+            order.StripePaymentIntentId,
+            order.StripeSessionId,
+            order.Location,
+            request.Email,
+            emailChanged,
+            cancellationToken);
+
+        order.PickupDateTime = request.PickupDateTime;
+        order.CustomerName = request.CustomerName;
+        order.CustomerAddress = request.CustomerAddress;
+        order.Email = request.Email;
+        order.Phone = request.Phone;
+        order.Message = request.Message;
+
+        await _orderRepository.UpdateAsync(order, cancellationToken);
+        return MapToDto(order);
+    }
+
     public async Task<OrderDto> UpdateStatusAsync(Guid id, UpdateOrderStatusRequest request, CancellationToken cancellationToken = default)
     {
         var order = await _orderRepository.GetByIdAsync(id, cancellationToken)
@@ -212,6 +247,17 @@ internal sealed class OrderService : IOrderService
             Seller = new SellerDto(),
             CreatedAt = order.CreatedAt
         };
+    }
+
+    private static bool CanUpdateUnpaidCheckout(Order order)
+    {
+        if (order.Status != OrderStatus.AwaitingPayment || order.PaidAt is not null)
+        {
+            return false;
+        }
+
+        return !string.IsNullOrWhiteSpace(order.StripePaymentIntentId)
+            || !string.IsNullOrWhiteSpace(order.StripeSessionId);
     }
 
     private static void ValidateCreateOrderRequest(CreateOrderRequest request)

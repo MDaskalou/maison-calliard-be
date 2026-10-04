@@ -1,6 +1,7 @@
 using FluentAssertions;
 using MaisonCalliard.Application.Orders;
 using MaisonCalliard.Application.Orders.Dtos;
+using MaisonCalliard.Application.Payments;
 using MaisonCalliard.Application.Receipts;
 using MaisonCalliard.Domain.Entities;
 using MaisonCalliard.Domain.Enums;
@@ -25,7 +26,8 @@ public sealed class OrderServiceUpdateTests
         _sut = new OrderService(
             _orderRepositoryMock.Object,
             _productRepositoryMock.Object,
-            _orderReceiptServiceMock.Object);
+            _orderReceiptServiceMock.Object,
+            Mock.Of<IPaymentService>());
 
         SetupProduct(
             _cakeProductId,
