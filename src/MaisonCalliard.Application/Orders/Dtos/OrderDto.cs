@@ -25,6 +25,7 @@ public sealed class OrderDto
     public bool IsPrinted { get; set; }
     public DateTime? CustomerEmailSentAt { get; set; }
     public DateTime? InternalNotificationSentAt { get; set; }
+    public DateTimeOffset? ArchivedAt { get; set; }
     public SellerDto Seller { get; set; } = new();
     public DateTime CreatedAt { get; set; }
 }

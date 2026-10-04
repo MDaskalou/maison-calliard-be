@@ -4,7 +4,7 @@ namespace MaisonCalliard.Domain.Repositories;
 
 public interface IOrderRepository
 {
-    Task<IReadOnlyList<Order>> GetAllAsync(CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<Order>> GetAllAsync(bool includeArchived = false, CancellationToken cancellationToken = default);
     Task<Order?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default);
     Task<Order?> GetByStripeSessionIdAsync(string sessionId, CancellationToken cancellationToken = default);
     Task<Order?> GetByStripePaymentIntentIdAsync(string paymentIntentId, CancellationToken cancellationToken = default);

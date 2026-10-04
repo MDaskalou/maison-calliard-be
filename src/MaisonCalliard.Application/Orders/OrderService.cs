@@ -9,12 +9,14 @@ namespace MaisonCalliard.Application.Orders;
 
 public interface IOrderService
 {
-    Task<IReadOnlyList<OrderDto>> GetAllAsync(CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<OrderDto>> GetAllAsync(bool includeArchived = false, CancellationToken cancellationToken = default);
     Task<OrderDto?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default);
     Task<OrderDto> CreateAsync(CreateOrderRequest request, CancellationToken cancellationToken = default);
     Task<OrderDto> UpdateAsync(Guid id, UpdateOrderRequest request, CancellationToken cancellationToken = default);
     Task<OrderDto> UpdateCheckoutAsync(Guid id, UpdateCheckoutRequest request, CancellationToken cancellationToken = default);
     Task<OrderDto> UpdateStatusAsync(Guid id, UpdateOrderStatusRequest request, CancellationToken cancellationToken = default);
+    Task<OrderDto> ArchiveAsync(Guid id, CancellationToken cancellationToken = default);
+    Task<OrderDto> UnarchiveAsync(Guid id, CancellationToken cancellationToken = default);
     Task ResendReceiptAsync(Guid id, CancellationToken cancellationToken = default);
     Task DeleteAsync(Guid id, CancellationToken cancellationToken = default);
 }
@@ -38,9 +40,9 @@ internal sealed class OrderService : IOrderService
         _paymentService = paymentService;
     }
 
-    public async Task<IReadOnlyList<OrderDto>> GetAllAsync(CancellationToken cancellationToken = default)
+    public async Task<IReadOnlyList<OrderDto>> GetAllAsync(bool includeArchived = false, CancellationToken cancellationToken = default)
     {
-        var orders = await _orderRepository.GetAllAsync(cancellationToken);
+        var orders = await _orderRepository.GetAllAsync(includeArchived, cancellationToken);
         return orders.Select(MapToDto).ToList();
     }
 
@@ -195,6 +197,26 @@ internal sealed class OrderService : IOrderService
         return MapToDto(order);
     }
 
+    public async Task<OrderDto> ArchiveAsync(Guid id, CancellationToken cancellationToken = default)
+    {
+        var order = await _orderRepository.GetByIdAsync(id, cancellationToken)
+            ?? throw new KeyNotFoundException($"Order {id} not found.");
+
+        order.Archive(DateTimeOffset.UtcNow);
+        await _orderRepository.UpdateAsync(order, cancellationToken);
+        return MapToDto(order);
+    }
+
+    public async Task<OrderDto> UnarchiveAsync(Guid id, CancellationToken cancellationToken = default)
+    {
+        var order = await _orderRepository.GetByIdAsync(id, cancellationToken)
+            ?? throw new KeyNotFoundException($"Order {id} not found.");
+
+        order.Unarchive();
+        await _orderRepository.UpdateAsync(order, cancellationToken);
+        return MapToDto(order);
+    }
+
     public async Task DeleteAsync(Guid id, CancellationToken cancellationToken = default)
     {
         var order = await _orderRepository.GetByIdAsync(id, cancellationToken)
@@ -246,6 +268,7 @@ internal sealed class OrderService : IOrderService
             IsPrinted = order.IsPrinted,
             CustomerEmailSentAt = order.CustomerEmailSentAt ?? order.ReceiptSentAt,
             InternalNotificationSentAt = order.InternalNotificationSentAt,
+            ArchivedAt = order.ArchivedAt,
             Seller = new SellerDto(),
             CreatedAt = order.CreatedAt
         };

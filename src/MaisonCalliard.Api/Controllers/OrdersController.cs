@@ -21,9 +21,9 @@ public sealed class OrdersController : ControllerBase
 
     [Authorize(Roles = "admin")]
     [HttpGet]
-    public async Task<IActionResult> GetAll(CancellationToken cancellationToken)
+    public async Task<IActionResult> GetAll([FromQuery] bool includeArchived = false, CancellationToken cancellationToken = default)
     {
-        var orders = await _orderService.GetAllAsync(cancellationToken);
+        var orders = await _orderService.GetAllAsync(includeArchived, cancellationToken);
         return Ok(orders);
     }
 
@@ -148,6 +148,36 @@ public sealed class OrdersController : ControllerBase
         {
             _logger.LogError(ex, "Receipt resend failed for order {OrderId}.", id);
             return StatusCode(StatusCodes.Status502BadGateway, new { message = "Kunde inte skicka kvittot just nu." });
+        }
+    }
+
+    [Authorize(Roles = "admin")]
+    [HttpPost("{id:guid}/archive")]
+    public async Task<IActionResult> Archive(Guid id, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var result = await _orderService.ArchiveAsync(id, cancellationToken);
+            return Ok(result);
+        }
+        catch (KeyNotFoundException)
+        {
+            return NotFound();
+        }
+    }
+
+    [Authorize(Roles = "admin")]
+    [HttpPost("{id:guid}/unarchive")]
+    public async Task<IActionResult> Unarchive(Guid id, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var result = await _orderService.UnarchiveAsync(id, cancellationToken);
+            return Ok(result);
+        }
+        catch (KeyNotFoundException)
+        {
+            return NotFound();
         }
     }
 

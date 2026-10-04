@@ -16,9 +16,15 @@ internal sealed class OrderRepository : IOrderRepository
         _context = context;
     }
 
-    public async Task<IReadOnlyList<Order>> GetAllAsync(CancellationToken cancellationToken = default)
+    public async Task<IReadOnlyList<Order>> GetAllAsync(bool includeArchived = false, CancellationToken cancellationToken = default)
     {
-        return await _context.Orders.Include(o => o.Items).ToListAsync(cancellationToken);
+        var query = _context.Orders.Include(o => o.Items).AsQueryable();
+        if (!includeArchived)
+        {
+            query = query.Where(o => o.ArchivedAt == null);
+        }
+
+        return await query.ToListAsync(cancellationToken);
     }
 
     public async Task<Order?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default)

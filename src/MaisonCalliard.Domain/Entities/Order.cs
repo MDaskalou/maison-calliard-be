@@ -25,5 +25,21 @@ public sealed class Order
     public DateTime? ReceiptSentAt { get; set; }
     public DateTime? CustomerEmailSentAt { get; set; }
     public DateTime? InternalNotificationSentAt { get; set; }
+    public DateTimeOffset? ArchivedAt { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+
+    public void Archive(DateTimeOffset archivedAt)
+    {
+        if (ArchivedAt is not null)
+        {
+            return;
+        }
+
+        ArchivedAt = archivedAt;
+    }
+
+    public void Unarchive()
+    {
+        ArchivedAt = null;
+    }
 }
