@@ -82,6 +82,35 @@ public sealed class OrderServiceCheckoutTests
     }
 
     [Fact]
+    public async Task UpdateCheckoutAsync_WithoutCustomerAddress_PersistsNull()
+    {
+        var order = CreateDraft();
+        _orderRepositoryMock
+            .Setup(r => r.GetByIdAsync(order.Id, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(order);
+
+        Order? savedOrder = null;
+        _orderRepositoryMock
+            .Setup(r => r.UpdateAsync(It.IsAny<Order>(), It.IsAny<CancellationToken>()))
+            .Callback<Order, CancellationToken>((updated, _) => savedOrder = updated)
+            .Returns(Task.CompletedTask);
+
+        var request = new UpdateCheckoutRequest
+        {
+            PickupDateTime = order.PickupDateTime,
+            CustomerName = order.CustomerName,
+            Email = order.Email,
+            Phone = order.Phone
+        };
+
+        var result = await _sut.UpdateCheckoutAsync(order.Id, request);
+
+        savedOrder.Should().NotBeNull();
+        savedOrder!.CustomerAddress.Should().BeNull();
+        result.CustomerAddress.Should().BeNull();
+    }
+
+    [Fact]
     public async Task UpdateCheckoutAsync_WhenEmailIsUnchanged_DoesNotAskStripeToUpdateReceiptEmail()
     {
         var order = CreateDraft();

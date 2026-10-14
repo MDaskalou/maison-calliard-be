@@ -158,7 +158,9 @@ internal sealed class OrderService : IOrderService
 
         order.PickupDateTime = request.PickupDateTime;
         order.CustomerName = request.CustomerName;
-        order.CustomerAddress = request.CustomerAddress;
+        order.CustomerAddress = string.IsNullOrWhiteSpace(request.CustomerAddress)
+            ? null
+            : request.CustomerAddress.Trim();
         order.Email = request.Email;
         order.Phone = request.Phone;
         order.Message = request.Message;
