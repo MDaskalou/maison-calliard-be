@@ -1,3 +1,4 @@
+using MaisonCalliard.Application.Auth;
 using MaisonCalliard.Application.Files;
 using MaisonCalliard.Application.OrderRequests;
 using MaisonCalliard.Application.Payments;
@@ -8,6 +9,7 @@ using MaisonCalliard.Infrastructure.Options;
 using MaisonCalliard.Infrastructure.Repositories;
 using MaisonCalliard.Infrastructure.Services;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -116,6 +118,45 @@ public static class DependencyInjection
         services.AddScoped<IOrderReceiptService, OrderReceiptService>();
         services.AddScoped<IOrderRequestService, OrderRequestService>();
         services.AddScoped<IPaymentService, StripePaymentService>();
+
+        services.Configure<AuthOptions>(configuration.GetSection(AuthOptions.SectionName));
+        services.PostConfigure<AuthOptions>(options => options.ApplyEnvironmentOverrides(configuration));
+        services.Configure<GoogleAuthOptions>(configuration.GetSection(GoogleAuthOptions.SectionName));
+        services.PostConfigure<GoogleAuthOptions>(options => options.ApplyEnvironmentOverrides(configuration));
+        services.AddSingleton(TimeProvider.System);
+        services.AddSingleton(sp =>
+        {
+            var options = sp.GetRequiredService<IOptions<AuthOptions>>().Value;
+            return new AuthPolicy
+            {
+                LoginLockoutThreshold = options.LoginLockoutThreshold > 0 ? options.LoginLockoutThreshold : 5,
+                LockoutDuration = TimeSpan.FromMinutes(options.LockoutMinutes > 0 ? options.LockoutMinutes : 15),
+                RefreshTokenLifetime = TimeSpan.FromDays(options.RefreshTokenDays > 0 ? options.RefreshTokenDays : 14),
+                LoginEmailVerification = options.LoginEmailVerification
+            };
+        });
+        services.AddSingleton<IPasswordHasher, IdentityPasswordHasher>();
+        services.AddSingleton<IAccessTokenIssuer, JwtAccessTokenIssuer>();
+        services.AddHttpClient(GoogleAccountVerifier.HttpClientName, client =>
+        {
+            client.BaseAddress = new Uri("https://oauth2.googleapis.com/");
+            client.Timeout = TimeSpan.FromSeconds(15);
+        });
+        services.AddScoped<IGoogleAccountVerifier, GoogleAccountVerifier>();
+        services.AddScoped<IAdminUserRepository, AdminUserRepository>();
+        services.AddScoped<IRefreshTokenRepository, RefreshTokenRepository>();
+        services.AddScoped<IAdminCredentialStore, AdminCredentialStore>();
+        if (environment.IsDevelopment())
+        {
+            services.AddSingleton<ILoginVerificationEmailSender, DevelopmentLoginCodeFileSender>();
+        }
+        else
+        {
+            services.AddScoped<ILoginVerificationEmailSender, ResendLoginVerificationEmailSender>();
+        }
+
+        services.AddScoped<ILoginFlow, LoginFlow>();
+        services.AddHostedService<AdminUserSeeder>();
 
         return services;
     }

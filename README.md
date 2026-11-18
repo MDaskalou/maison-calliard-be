@@ -349,6 +349,31 @@ Flera origins kan anges kommaseparerat, till exempel:
 Cors__AllowedOriginsCsv=https://din-site.netlify.app,https://www.maisoncalliard.com
 ```
 
+Refresh och logout använder en egen lista, `Auth:AllowedBrowserOrigins`. Där ska bara admin-frontendens exakta origins stå, inte hela kundsajten och inga wildcard som `https://*.netlify.app`. Varje sådan origin måste också finnas i CORS-listan. Sätt båda i Azure innan den här versionen deployas:
+
+```txt
+Cors__AllowedOriginsCsv=https://din-admin.netlify.app,https://www.maisoncalliard.com
+Auth__AllowedBrowserOriginsCsv=https://din-admin.netlify.app
+```
+
+Saknas admin-listan startar API:t ändå, så befintliga kundanrop och Logto inte slås ut. Refresh och logout svarar då 403 tills nyckeln finns.
+
+`http://localhost:3000` och `http://localhost:5173` hör hemma i `appsettings.Development.json` under `Auth:AllowedBrowserOrigins`. De finns inte i den deployade `appsettings.json`, så en produktionsmiljö litar bara på origins som satts i Azure. CSV-värdet läggs ovanpå en eventuell lista. Det ersätter den inte.
+
+Frontend ska anropa refresh och logout så här:
+
+```js
+await fetch(`${apiBase}/api/auth/refresh`, {
+  method: "POST",
+  credentials: "include",
+  headers: { "X-CSRF": "1" }
+});
+```
+
+`credentials: "include"` krävs för att webbläsaren ska skicka `mc_refresh`. Headern `X-CSRF: 1` krävs av servern. `Origin` sätter webbläsaren själv.
+
+Cookien är `SameSite=None`, `Secure` och `Partitioned` eftersom en Netlify-sajt och ett API på `maisoncalliard.com` är olika sajter. `Partitioned` (CHIPS) gör att Chromium kan spara den som en tredjepartscookie. CHIPS finns inte i alla webbläsare och garanterar inte att refresh fungerar från Netlify. När frontend har byggts behöver flödet testas i riktiga webbläsare. Den långsiktigt säkra lösningen är att lägga admin-frontend och API på samma site.
+
 Satt backendens publika URL sa Stripe-redirects inte pekar mot localhost:
 
 ```txt

@@ -19,6 +19,11 @@ internal sealed class AppDbContext : DbContext
     public DbSet<CartItem> CartItems => Set<CartItem>();
     public DbSet<ReceiptSequence> ReceiptSequences => Set<ReceiptSequence>();
     public DbSet<AppSettings> Settings => Set<AppSettings>();
+    public DbSet<AdminUser> AdminUsers => Set<AdminUser>();
+    public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
+    public DbSet<LoginEmailChallenge> LoginEmailChallenges => Set<LoginEmailChallenge>();
+    public DbSet<TrustedDevice> TrustedDevices => Set<TrustedDevice>();
+    public DbSet<LoginEmailQuota> LoginEmailQuotas => Set<LoginEmailQuota>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -33,6 +38,11 @@ internal sealed class AppDbContext : DbContext
         ConfigureOrder(modelBuilder);
         ConfigureReceiptSequence(modelBuilder);
         ConfigureSettings(modelBuilder);
+        ConfigureAdminUser(modelBuilder);
+        ConfigureRefreshToken(modelBuilder);
+        ConfigureLoginEmailChallenge(modelBuilder);
+        ConfigureTrustedDevice(modelBuilder);
+        ConfigureLoginEmailQuota(modelBuilder);
     }
 
     private static void ConfigureLocalizedText(ModelBuilder modelBuilder, JsonSerializerOptions jsonOptions)
@@ -146,5 +156,75 @@ internal sealed class AppDbContext : DbContext
     {
         modelBuilder.Entity<AppSettings>().HasKey(s => s.Id);
         modelBuilder.Entity<AppSettings>().HasData(new AppSettings { Id = Guid.Parse("00000000-0000-0000-0000-000000000001"), LeadTimeDays = 3 });
+    }
+
+    private static void ConfigureAdminUser(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<AdminUser>().HasKey(u => u.Id);
+        modelBuilder.Entity<AdminUser>().Property(u => u.Email).HasMaxLength(320).IsRequired();
+        modelBuilder.Entity<AdminUser>().Property(u => u.NormalizedEmail).HasMaxLength(320).IsRequired();
+        modelBuilder.Entity<AdminUser>().HasIndex(u => u.NormalizedEmail).IsUnique();
+        modelBuilder.Entity<AdminUser>().Property(u => u.Role).HasMaxLength(32).IsRequired();
+        modelBuilder.Entity<AdminUser>().Property(u => u.PasswordHash).HasMaxLength(512);
+        modelBuilder.Entity<AdminUser>().Property(u => u.MustChangePassword).HasDefaultValue(false);
+        modelBuilder.Entity<AdminUser>().Property(u => u.TokenVersion).HasDefaultValue(0).IsConcurrencyToken();
+        modelBuilder.Entity<AdminUser>().Property(u => u.GoogleSubject).HasMaxLength(255);
+        modelBuilder.Entity<AdminUser>()
+            .HasIndex(u => u.GoogleSubject)
+            .IsUnique()
+            .HasFilter("\"GoogleSubject\" IS NOT NULL");
+    }
+
+    private static void ConfigureRefreshToken(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<RefreshToken>().HasKey(t => t.Id);
+        modelBuilder.Entity<RefreshToken>().Property(t => t.TokenHash).HasMaxLength(128).IsRequired();
+        modelBuilder.Entity<RefreshToken>().HasIndex(t => t.TokenHash).IsUnique();
+        modelBuilder.Entity<RefreshToken>()
+            .HasOne<AdminUser>()
+            .WithMany()
+            .HasForeignKey(t => t.AdminUserId)
+            .OnDelete(DeleteBehavior.Cascade);
+    }
+
+    private static void ConfigureLoginEmailChallenge(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<LoginEmailChallenge>().ToTable("LoginEmailChallenges");
+        modelBuilder.Entity<LoginEmailChallenge>().HasKey(challenge => challenge.Id);
+        modelBuilder.Entity<LoginEmailChallenge>().Property(challenge => challenge.TokenHash).HasMaxLength(128).IsRequired();
+        modelBuilder.Entity<LoginEmailChallenge>().Property(challenge => challenge.CodeHash).HasMaxLength(128).IsRequired();
+        modelBuilder.Entity<LoginEmailChallenge>().HasIndex(challenge => challenge.TokenHash).IsUnique();
+        modelBuilder.Entity<LoginEmailChallenge>().HasIndex(challenge => challenge.AdminUserId);
+        modelBuilder.Entity<LoginEmailChallenge>()
+            .HasOne<AdminUser>()
+            .WithMany()
+            .HasForeignKey(challenge => challenge.AdminUserId)
+            .OnDelete(DeleteBehavior.Cascade);
+    }
+
+    private static void ConfigureTrustedDevice(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<TrustedDevice>().ToTable("TrustedDevices");
+        modelBuilder.Entity<TrustedDevice>().HasKey(device => device.Id);
+        modelBuilder.Entity<TrustedDevice>().Property(device => device.TokenHash).HasMaxLength(128).IsRequired();
+        modelBuilder.Entity<TrustedDevice>().Property(device => device.Label).HasMaxLength(200);
+        modelBuilder.Entity<TrustedDevice>().HasIndex(device => device.TokenHash).IsUnique();
+        modelBuilder.Entity<TrustedDevice>().HasIndex(device => device.AdminUserId);
+        modelBuilder.Entity<TrustedDevice>()
+            .HasOne<AdminUser>()
+            .WithMany()
+            .HasForeignKey(device => device.AdminUserId)
+            .OnDelete(DeleteBehavior.Cascade);
+    }
+
+    private static void ConfigureLoginEmailQuota(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<LoginEmailQuota>().ToTable("LoginEmailQuotas");
+        modelBuilder.Entity<LoginEmailQuota>().HasKey(quota => quota.AdminUserId);
+        modelBuilder.Entity<LoginEmailQuota>()
+            .HasOne<AdminUser>()
+            .WithMany()
+            .HasForeignKey(quota => quota.AdminUserId)
+            .OnDelete(DeleteBehavior.Cascade);
     }
 }

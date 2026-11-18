@@ -1,3 +1,4 @@
+using MaisonCalliard.Application.Auth;
 using MaisonCalliard.Application.Menu;
 using MaisonCalliard.Application.News;
 using MaisonCalliard.Application.Orders;
@@ -16,6 +17,7 @@ public static class DependencyInjection
         services.AddScoped<IProductService, ProductService>();
         services.AddScoped<IOrderService, OrderService>();
         services.AddScoped<ISettingsService, SettingsService>();
+        services.AddScoped<IAuthService, AuthService>();
 
         return services;
     }

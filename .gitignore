@@ -2,6 +2,9 @@
 # Ignorera kompilerade filer (de byggs på nytt varje gång)
 bin/
 obj/
+__pycache__/
+*.pyc
+*-review.sql
 
 # Lokala användarinställningar
 *.user
